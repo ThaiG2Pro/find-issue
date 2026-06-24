@@ -102,11 +102,16 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
     # Step 7: LLM
     llm_provider, llm_api_key = _resolve_llm(data, env)
 
-    # Steps 8-9: unknown keys ignored, return Config
+    # Step 8: optional [state] section
+    state_section = data.get("state", {})
+    state_path: str = state_section.get("state_path", "./.osspulse/state.json")
+
+    # Steps 9-10: unknown keys ignored, return Config
     return Config(
         watched_repos=watched_repos,
         lookback_days=lookback_days,
         github_token=github_token,
         llm_provider=llm_provider,
         llm_api_key=llm_api_key,
+        state_path=state_path,
     )

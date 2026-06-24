@@ -18,6 +18,7 @@ class Config:
     github_token: str = ""
     llm_provider: str | None = None
     llm_api_key: str | None = None
+    state_path: str = "./.osspulse/state.json"  # AC-3-013
 
 
 @dataclass(frozen=True)

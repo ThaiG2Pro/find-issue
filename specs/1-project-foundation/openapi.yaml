@@ -1,0 +1,103 @@
+openapi: 3.0.3
+info:
+  title: OSS Pulse — Project Foundation
+  version: 0.1.0
+  description: |
+    **No HTTP API.** OSS Pulse is a command-line tool; this feature
+    (`1-project-foundation`) exposes its interface exclusively through CLI
+    commands, not HTTP endpoints. This OpenAPI document exists to satisfy the
+    SDLC artifact requirement (R5) and to record — in a machine-readable way —
+    that there is intentionally no HTTP surface for this feature.
+
+    The actual interface contract for this feature is the CLI command set,
+    documented under `x-cli-commands` below and in `design.md §4 API Design`.
+
+    A real HTTP/OpenAPI surface would only appear if a future V3 web UI is added
+    (out of scope here; see PROJECT_SPEC §5 V3).
+
+# Intentionally empty: this CLI tool exposes no HTTP paths.
+paths: {}
+
+components:
+  schemas:
+    # Domain models are in-process dataclasses (see design.md §5), not HTTP
+    # payloads. Documented here for reference / future reuse only.
+    WatchedRepo:
+      type: object
+      description: A validated watchlist entry (org/repo).
+      required: [owner, name]
+      properties:
+        owner:
+          type: string
+          example: facebook
+        name:
+          type: string
+          example: react
+        full_name:
+          type: string
+          readOnly: true
+          example: facebook/react
+    Config:
+      type: object
+      description: Validated in-memory configuration produced by load_config().
+      required: [watched_repos, lookback_days, github_token]
+      properties:
+        watched_repos:
+          type: array
+          items:
+            $ref: '#/components/schemas/WatchedRepo'
+        lookback_days:
+          type: integer
+          minimum: 1
+          default: 7
+          example: 7
+        github_token:
+          type: string
+          description: Read from env/.env only; never stored in config files.
+          writeOnly: true
+        llm_provider:
+          type: string
+          nullable: true
+          example: openai
+        llm_api_key:
+          type: string
+          nullable: true
+          writeOnly: true
+    ConfigError:
+      type: object
+      description: |
+        Not an HTTP error body. Represents the ConfigError surfaced at the CLI
+        boundary as `Error: <message>` on stderr with a non-zero exit code
+        (BR-1-007). Documented for contract completeness.
+      properties:
+        message:
+          type: string
+          example: "GITHUB_TOKEN is required"
+
+# Non-standard extension documenting the real (CLI) interface contract.
+x-cli-commands:
+  - command: osspulse --help
+    description: Print application help including available commands.
+    exit_code_success: 0
+    maps_to_ac: [AC-1-028]
+  - command: osspulse run --help
+    description: Document the run command and its options.
+    exit_code_success: 0
+    maps_to_ac: [AC-1-029]
+  - command: osspulse run [--config PATH]
+    description: >
+      Load and validate config (default path config.toml), then print a
+      "pipeline not yet implemented" stub message. On config failure, print
+      `Error: <message>` to stderr and exit non-zero with no traceback.
+    options:
+      - name: --config
+        type: string
+        default: config.toml
+        description: Path to the TOML config file.
+    exit_code_success: 0
+    exit_code_failure: 1
+    maps_to_ac: [AC-1-030, AC-1-031, AC-1-032]
+  - command: osspulse <unknown>
+    description: Unknown subcommand prints usage help to stderr and exits non-zero.
+    exit_code_failure: 2
+    maps_to_ac: [AC-1-033]

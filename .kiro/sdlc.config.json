@@ -1,0 +1,41 @@
+{
+  "$note": "Per-project pipeline behavior. Loaded into every agent (via context-map 'always'). Agents/orchestrator HONOR these values instead of hardcoding them. Edit per project; no prompt edits needed.",
+
+  "gates": {
+    "auto_pass": false,
+    "convergence": "auto",
+    "stable_rounds": 3,
+    "convergence_gates": ["SPEC_LOCK", "DESIGN_REVIEW"]
+  },
+
+  "qa": {
+    "testcase_export": "auto"
+  },
+
+  "coverage": {
+    "diff_threshold": 90,
+    "lines_threshold": 80,
+    "branches_threshold": 80
+  },
+
+  "security": {
+    "stride_analysis": "auto"
+  },
+
+  "test_framework": "auto",
+
+  "sonar_scan": false,
+
+  "$docs": {
+    "gates.auto_pass": "true = orchestrator auto-approves a gate when its audit has 0 blockers (still stops on any blocker). false = always require explicit human approve.",
+    "gates.convergence": "Rigor of the quality gates. auto = ASK once at kickoff (full vs lite) for feature/cr/rebuild; bugfix/hotfix are always lite. always = force full (convergence loop) on every change. never = always single-pass (legacy). A runtime flag --rigor=full|lite on the sdlc command overrides this. Honored by the orchestrator.",
+    "gates.stable_rounds": "When rigor=full, a convergence gate re-runs its audit until the blocker/gap list is identical this many consecutive rounds before it can PASS. Higher = stricter + slower.",
+    "gates.convergence_gates": "Which gates run the convergence loop when rigor=full. Others stay single-pass. Default: spec (SPEC_LOCK) + design (DESIGN_REVIEW) — where business-logic gaps hide.",
+    "qa.testcase_export": "Test-case artifact format from qa-test-design. auto = .xlsx when rigor=full (feature/cr/rebuild), markdown when lite (bugfix→md, hotfix→skip). xlsx/md = force that format. none = skip the test-case artifact. Runtime --xlsx/--no-xlsx overrides.",
+    "coverage.diff_threshold": "% of CHANGED lines that must be covered (developer S4 gate).",
+    "coverage.lines_threshold / branches_threshold": "Overall coverage floor (developer S4 gate).",
+    "security.stride_analysis": "auto = run STRIDE threat-model only when the feature touches auth/payment/PII; always = every feature; never = skip. Honored by analyst (early risk) + qa.",
+    "test_framework": "auto = use the framework in context/stack.md; or pin one (e.g. vitest, jest, playwright, pytest, phpunit).",
+    "sonar_scan": "true = run a SonarQube quality gate in S4 if configured; false = skip."
+  }
+}

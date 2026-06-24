@@ -1,0 +1,9 @@
+{
+  "stack": "laravel",
+  "contextFiles": ["stack.md", "conventions.md"],
+  "skills": {
+    "architect": ["laravel-api-design"],
+    "developer": ["laravel-backend-patterns", "laravel-database-migrations", "laravel-tdd-workflow", "laravel-test-generator"],
+    "qa": ["laravel-test-generator"]
+  }
+}

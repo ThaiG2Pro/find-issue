@@ -1,0 +1,78 @@
+{
+  "ticket_id": "1",
+  "feature_slug": "project-foundation",
+  "current_phase": "S6",
+  "last_updated": "2026-06-22T16:00:00+07:00",
+  "last_agent": "developer",
+  "phase_history": [
+    {
+      "phase": "S1", "agent": "analyst", "started": "2026-06-21T19:17:32+07:00", "completed": "2026-06-21T19:19:35+07:00",
+      "artifacts_produced": ["requirements.md", "_glossary.md", "_decisions.jsonl", "_handoff.md"],
+      "key_outcome": "Scope=B. 15 edge cases. 6 assumptions."
+    },
+    {
+      "phase": "S2", "agent": "analyst", "started": "2026-06-21T19:22:48+07:00", "completed": "2026-06-21T19:22:48+07:00",
+      "artifacts_produced": ["requirements.md (§S2)", "_handoff.md", "_glossary.md", "_decisions.jsonl"],
+      "key_outcome": "33 ACs, 7 BRs, 3 INTs. spec-auditor PASS."
+    },
+    {
+      "phase": "S3", "agent": "architect", "started": "2026-06-21T19:26:10+07:00", "completed": "2026-06-21T19:31:33+07:00",
+      "artifacts_produced": ["design.md", "openapi.yaml", "tasks.md", "_handoff.md", "_glossary.md", "_decisions.jsonl"],
+      "key_outcome": "4 ADRs, 0 HTTP endpoints, 33/33 ACs mapped."
+    },
+    {
+      "phase": "S4", "agent": "developer", "started": "2026-06-21T21:27:52+07:00", "completed": "2026-06-21T21:27:52+07:00",
+      "artifacts_produced": ["src/", "tests/", "pyproject.toml", ".mise.toml", ".gitignore", ".env.example", "config.example.toml", ".github/workflows/ci.yml", "uv.lock", "dev-test-report.md"],
+      "key_outcome": "30/30 tests pass, 100% coverage, 33/33 ACs covered."
+    },
+    {
+      "phase": "S5-initial", "agent": "qa", "started": "2026-06-21T21:41:44+07:00", "completed": "2026-06-21T21:41:44+07:00",
+      "artifacts_produced": ["qa-report.md", "_handoff.md", "_decisions.jsonl (+5 bug entries)"],
+      "key_outcome": "NO-GO — 2 High, 3 Low bugs."
+    },
+    {
+      "phase": "S4-fix", "agent": "developer", "started": "2026-06-21T21:46:28+07:00", "completed": "2026-06-21T21:46:28+07:00",
+      "artifacts_produced": ["src/osspulse/config.py", "src/osspulse/cli.py", "tests/ (+3 new tests)", "dev-test-report.md §Bug Fixes", "_decisions.jsonl (+5 fix entries)"],
+      "key_outcome": "All 5 bugs fixed. 33/33 tests pass, 98% coverage."
+    },
+    {
+      "phase": "S5", "agent": "qa", "started": "2026-06-21T21:50:55+07:00", "completed": "2026-06-21T21:50:55+07:00",
+      "artifacts_produced": ["qa-report.md (retest section appended)", "_handoff.md (S5→S6)", "_decisions.jsonl (+1 entry)"],
+      "key_outcome": "GO — 0 Critical/High bugs, 33/33 tests pass, 98% coverage, all smoke tests clean."
+    },
+    {
+      "phase": "S6", "agent": "developer", "started": "2026-06-22T16:00:00+07:00", "completed": "2026-06-22T16:00:00+07:00",
+      "artifacts_produced": ["release.md"],
+      "key_outcome": "Release artifacts ready. 33/33 tests pass, 98% coverage, lint clean. Pending: pip-audit + git tag."
+    }
+  ],
+  "active_concerns": [
+    "pip-audit not run — run before tagging v0.1.0",
+    "if env is None fallback (config.py:70-72) uncovered — intentional, not a gap"
+  ],
+  "terminology": {
+    "Foundation": "Technical skeleton: toolchain + port interfaces + config loader + CLI stub",
+    "Port interface": "Python Protocol/ABC defining external dependency contract without implementation",
+    "Config": "Validated in-memory object from config.toml + env vars",
+    "WatchedRepo": "Validated org/repo entry with owner+name fields and full_name property",
+    "FakeSummaryCache": "In-memory SummaryCache for tests — no Redis",
+    "Fail fast": "Exit with clear error + non-zero exit code before pipeline starts",
+    "ConfigError": "Exception raised by config.py; caught only at CLI boundary (BR-1-007)",
+    "load_config": "load_config(config_path, env=None) -> Config; raises ConfigError",
+    "ConfigError boundary": "Single try/except in cli.py converting ConfigError to stderr + Exit(1)",
+    "Bool trap": "bool is int subclass; reject lookback_days bool via type() is int",
+    "Coverage omit": "pyproject.toml omits ports.py + pipeline.py from coverage (ADR-004/BR-1-006)",
+    "x-cli-commands": "OpenAPI extension documenting CLI contract (no HTTP paths)",
+    "api_key_env": "Optional config key in [llm] section to override which env var holds the LLM API key (default: LLM_API_KEY)"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null,
+    "watch_items": [
+      "Run pip-audit before tagging (not available in dev env during S5)",
+      "CI gate must pass on main before git tag v0.1.0"
+    ]
+  }
+}

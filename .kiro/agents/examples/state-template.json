@@ -1,0 +1,35 @@
+{
+  "_comment": "TEMPLATE for {CHANGE_DIR}/_state.json — the machine-readable pipeline state every agent enriches at phase end. Replace every {placeholder}. cpp-guard's enriched-state check (S2/S3 gates) requires phase_history to be a non-empty array AND next_action.priority_reading to be a non-empty array. rigor + convergence are mandatory (set by the orchestrator). Delete this _comment key in real files. This sample shows the state right after S3.",
+  "ticket_id": "{ticket_id}",
+  "change_name": "{kebab-change-name}",
+  "type": "{feature|cr|rebuild|bugfix|hotfix}",
+  "current_phase": "S3",
+  "last_updated": "{ISO date}",
+  "last_agent": "architect",
+  "rigor": "{full|lite}",
+  "gates": { "S2": "passed", "S3": "passed" },
+  "convergence": {
+    "S3": { "stable": 3, "rounds": 3 }
+  },
+  "phase_history": [
+    { "phase": "S1", "agent": "analyst", "started": "{ISO}", "completed": "{ISO}", "artifacts_produced": ["proposal.md", "spec deltas (initial)"], "key_outcome": "{summary}" },
+    { "phase": "S2", "agent": "analyst", "started": "{ISO}", "completed": "{ISO}", "artifacts_produced": ["spec deltas (scenarios)", "_handoff.md", "_glossary.md", "_decisions.jsonl"], "key_outcome": "{N} ACs, {M} BRs" },
+    { "phase": "S3", "agent": "architect", "started": "{ISO}", "completed": "{ISO}", "artifacts_produced": ["design.md", "openapi.yaml", "tasks.md", "_handoff.md", "_decisions.jsonl"], "key_outcome": "{N} ADRs, {K} tasks" }
+  ],
+  "active_concerns": ["{top 3-5 things the next agent must watch}"],
+  "terminology": { "{term}": "{definition}" },
+  "next_action": {
+    "agent": "sdlc",
+    "command": "approve s3",
+    "prerequisite": "{gate sign-off this phase awaits}",
+    "blocker": "{AWAITING … or null}",
+    "routes_to": "{next agent + command — orchestrator routes only after the gate passes}",
+    "priority_reading": [
+      "tasks.md — implementation order and checkpoints",
+      "_handoff.md — prior agent's reasoning and risky areas",
+      "_glossary.md — shared terminology",
+      "design.md §Implementation Guide — patterns to follow"
+    ],
+    "watch_items": ["{specific warnings for the next agent}"]
+  }
+}

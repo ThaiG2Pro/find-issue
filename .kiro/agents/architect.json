@@ -1,0 +1,149 @@
+{
+  "name": "architect",
+  "description": "SDLC S3 (Design). Validate spec → thiết kế giải pháp kỹ thuật đầy đủ. Trigger: /s3",
+  "prompt": "file://./architect.md",
+  "tools": [
+    "read",
+    "write",
+    "shell",
+    "code",
+    "@bookstack",
+    "@redmine"
+  ],
+  "allowedTools": [
+    "read",
+    "code",
+    "shell",
+    "@bookstack"
+  ],
+  "toolsSettings": {
+    "write": {
+      "allowedPaths": [
+        "openspec/**",
+        "docs/**"
+      ]
+    },
+    "shell": {
+      "allowedCommands": [
+        "ls",
+        "find",
+        "cat",
+        "head",
+        "wc",
+        "grep"
+      ]
+    }
+  },
+  "resources": [
+    "skill://.kiro/skills/cross-artifact-audit/SKILL.md",
+    "skill://.kiro/skills/api-design/SKILL.md",
+    "skill://.kiro/skills/stride-analysis/SKILL.md",
+    "skill://.kiro/skills/search-first/SKILL.md",
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/steering",
+      "name": "Steering",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/openspec",
+      "name": "Openspec",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/sdlc.config.json",
+      "name": "Sdlc.config",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/project.md",
+      "name": "Project",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/glossary.md",
+      "name": "Glossary",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/ai",
+      "name": "Ai",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/stack.md",
+      "name": "Stack",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/architecture.md",
+      "name": "Architecture",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/conventions.md",
+      "name": "Conventions",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/legacy-ref.md",
+      "name": "LegacyRef",
+      "indexType": "best",
+      "autoUpdate": false
+    }
+  ],
+  "hooks": {
+    "agentSpawn": [
+      {
+        "command": "python3 .kiro/agents/scripts/agent-spawn-context.py architect",
+        "timeout_ms": 5000,
+        "cache_ttl_seconds": 15
+      }
+    ],
+    "stop": [
+      {
+        "command": "echo '' && echo '=== Uncommitted ===' && git diff --stat openspec/ 2>/dev/null | tail -5 || true",
+        "timeout_ms": 5000
+      },
+      {
+        "command": "node .kiro/tools/cpp-guard.mjs --role architect 2>/dev/null || true",
+        "timeout_ms": 4000
+      }
+    ],
+    "preToolUse": [
+      {
+        "matcher": "fs_write",
+        "command": "python3 .kiro/agents/scripts/check-write-path.py architect",
+        "timeout_ms": 3000
+      }
+    ],
+    "userPromptSubmit": [
+      {
+        "command": "python3 -c \"\nimport json,sys,re\nd=json.load(sys.stdin)\nmsg=d.get('user_message','')\nm=re.search(r'\\b(\\d{4,6})\\b',msg)\nif m: print(f'[Auto-context] ticket_id detected: {m.group(1)}')\n\" 2>/dev/null||true",
+        "timeout_ms": 1000
+      }
+    ]
+  },
+  "includeMcpJson": true,
+  "model": "claude-opus-4.8",
+  "keyboardShortcut": "ctrl+2",
+  "welcomeMessage": "Architect sẵn sàng. Dùng /s3 {ticket_id} {feature-slug} để bắt đầu thiết kế."
+}

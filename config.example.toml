@@ -1,0 +1,6 @@
+[watchlist]
+repos = ["facebook/react"]
+lookback_days = 7
+
+# [llm]
+# provider = "openai"

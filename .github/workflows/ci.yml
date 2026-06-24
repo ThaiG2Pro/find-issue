@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+        with:
+          experimental: true
+
+      - name: Install dependencies
+        run: mise exec -- uv sync
+
+      - name: Lint
+        run: mise exec -- uv run ruff check src/ tests/
+
+      - name: Format check
+        run: mise exec -- uv run ruff format --check src/ tests/
+
+      - name: Test with coverage
+        run: mise exec -- uv run pytest --cov --cov-fail-under=80

@@ -1,0 +1,129 @@
+{
+  "name": "analyst",
+  "description": "SDLC S1 (Req Intake) + S2 (Func Spec). Phân tích yêu cầu, tạo requirement pack, functional spec với AC testable. Trigger: /s1, /s2. Keywords: requirements, spec, AC, user story, business analyst, phân tích yêu cầu",
+  "prompt": "file://./analyst.md",
+  "tools": [
+    "read",
+    "write",
+    "shell",
+    "@bookstack",
+    "@redmine"
+  ],
+  "allowedTools": [
+    "read",
+    "shell",
+    "@bookstack",
+    "@redmine/redmine_request"
+  ],
+  "toolsSettings": {
+    "write": {
+      "allowedPaths": [
+        "openspec/**",
+        "docs/knowledge/**"
+      ]
+    },
+    "shell": {
+      "allowedCommands": [
+        "ls",
+        "find",
+        "cat",
+        "head",
+        "wc",
+        "grep"
+      ]
+    }
+  },
+  "resources": [
+    "skill://.kiro/skills/assumption-detector/SKILL.md",
+    "skill://.kiro/skills/clarification-generator/SKILL.md",
+    "skill://.kiro/skills/edge-case-enumerator/SKILL.md",
+    "skill://.kiro/skills/php-implicit-behavior-audit/SKILL.md",
+    "skill://.kiro/skills/spec-auditor/SKILL.md",
+    "skill://.kiro/skills/stride-analysis/SKILL.md",
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/steering",
+      "name": "Steering",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/openspec",
+      "name": "Openspec",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/sdlc.config.json",
+      "name": "Sdlc.config",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/project.md",
+      "name": "Project",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/glossary.md",
+      "name": "Glossary",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/conventions.md",
+      "name": "Conventions",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/legacy-ref.md",
+      "name": "LegacyRef",
+      "indexType": "best",
+      "autoUpdate": false
+    }
+  ],
+  "hooks": {
+    "agentSpawn": [
+      {
+        "command": "python3 .kiro/agents/scripts/agent-spawn-context.py analyst",
+        "timeout_ms": 5000,
+        "cache_ttl_seconds": 15
+      }
+    ],
+    "stop": [
+      {
+        "command": "echo \"\" && echo \"=== Uncommitted Changes ===\" && git diff --stat openspec/ 2>/dev/null | tail -5 || true",
+        "timeout_ms": 5000
+      },
+      {
+        "command": "node .kiro/tools/cpp-guard.mjs --role analyst 2>/dev/null || true",
+        "timeout_ms": 4000
+      }
+    ],
+    "preToolUse": [
+      {
+        "matcher": "fs_write",
+        "command": "python3 .kiro/agents/scripts/check-write-path.py analyst",
+        "timeout_ms": 3000
+      }
+    ],
+    "userPromptSubmit": [
+      {
+        "command": "python3 -c \"\nimport json, sys, re\nd = json.load(sys.stdin)\nmsg = d.get('user_message', '')\nm = re.search(r'\\b(\\d{4,6})\\b', msg)\nif m:\n    tid = m.group(1)\n    print(f'[Auto-context] Detected ticket_id: {tid}')\n    print(f'If this is a Redmine ticket, use @redmine to fetch: redmine_request /issues/{tid}.json')\n\" 2>/dev/null || true",
+        "timeout_ms": 2000
+      }
+    ]
+  },
+  "includeMcpJson": true,
+  "model": "claude-opus-4.8",
+  "keyboardShortcut": "ctrl+1",
+  "welcomeMessage": "Analyst sẵn sàng. Dùng /s1 {ticket_id} {feature-slug} để bắt đầu phân tích yêu cầu."
+}

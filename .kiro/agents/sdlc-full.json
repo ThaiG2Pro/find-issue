@@ -1,0 +1,125 @@
+{
+  "name": "sdlc-full",
+  "description": "SDLC Orchestrator for FULL flows (feature/cr/rebuild) — S1→S6. Auto-detects phase, routes to the correct role agent, manages gates. Use: 'sdlc feature {slug}', 'CR {slug}', 'rebuild {slug}', or natural language.",
+  "prompt": "file://./sdlc-full.md",
+  "tools": [
+    "read",
+    "write",
+    "shell"
+  ],
+  "allowedTools": [
+    "read",
+    "write",
+    "shell"
+  ],
+  "toolsSettings": {
+    "write": {
+      "allowedPaths": [
+        "openspec/**",
+        ".kiro/memory/**"
+      ]
+    },
+    "shell": {
+      "allowedCommands": [
+        "cat",
+        "grep",
+        "ls",
+        "test",
+        "node",
+        "openspec"
+      ]
+    }
+  },
+  "resources": [
+    "skill://.kiro/skills/sdlc-orchestration-core/SKILL.md",
+    "skill://.kiro/skills/spec-auditor/SKILL.md",
+    "skill://.kiro/skills/cross-artifact-audit/SKILL.md",
+    "skill://.kiro/skills/sprint-retro/SKILL.md",
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/steering",
+      "name": "Steering",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/openspec",
+      "name": "Openspec",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/sdlc.config.json",
+      "name": "Sdlc.config",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/project.md",
+      "name": "Project",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/glossary.md",
+      "name": "Glossary",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/context/conventions.md",
+      "name": "Conventions",
+      "indexType": "best",
+      "autoUpdate": false
+    },
+    {
+      "type": "knowledgeBase",
+      "source": "file://./.kiro/pipelines.json",
+      "name": "Pipelines",
+      "indexType": "best",
+      "autoUpdate": false
+    }
+  ],
+  "hooks": {
+    "agentSpawn": [
+      {
+        "command": "python3 .kiro/agents/scripts/agent-spawn-context.py sdlc-full",
+        "timeout_ms": 5000,
+        "cache_ttl_seconds": 15
+      }
+    ],
+    "preToolUse": [
+      {
+        "matcher": "fs_write",
+        "command": "python3 .kiro/agents/scripts/check-write-path.py sdlc-full",
+        "timeout_ms": 3000
+      },
+      {
+        "matcher": "execute_bash",
+        "command": "python3 .kiro/agents/scripts/check-shell-command.py sdlc-full",
+        "timeout_ms": 3000
+      }
+    ],
+    "stop": [
+      {
+        "command": "echo '' && echo '=== Uncommitted (openspec) ===' && git diff --stat openspec/ 2>/dev/null | tail -5; OUT=$(git diff --name-only -- . ':(exclude)openspec' ':(exclude)memory' ':(exclude).kiro' 2>/dev/null); [ -n \"$OUT\" ] && { echo '⚠ NON-SPEC FILE CHANGES detected — the orchestrator must NOT write code; only the developer agent (S4) may. Verify these came from S4:'; echo \"$OUT\" | head -20; }; true",
+        "timeout_ms": 5000
+      }
+    ],
+    "userPromptSubmit": [
+      {
+        "command": "python3 -c \"\nimport json,sys,re\nd=json.load(sys.stdin)\nmsg=d.get('user_message','').lower()\nif any(k in msg for k in ['approve','nogo','no-go','dispute','status','continue','sdlc','feature','rebuild','cr']):\n    print('[Pipeline] Action detected in message')\nm=re.search(r'\\b(\\d{4,6})\\b',d.get('user_message',''))\nif m: print(f'[Auto-context] ticket_id: {m.group(1)}')\n\" 2>/dev/null||true",
+        "timeout_ms": 1000
+      }
+    ]
+  },
+  "includeMcpJson": true,
+  "model": "claude-sonnet-4.6",
+  "keyboardShortcut": "ctrl+0",
+  "welcomeMessage": "SDLC Full (feature/cr/rebuild). Nói \"sdlc feature {tên}\", \"CR {tên}\" hoặc \"rebuild {tên}\" để bắt đầu; \"approve\"/\"status\" để quản lý pipeline. Bug/hotfix → dùng sdlc-fast (ctrl+5)."
+}

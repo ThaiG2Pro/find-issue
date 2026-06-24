@@ -1,0 +1,99 @@
+{
+  "ticket_id": "2",
+  "feature_slug": "github-collector",
+  "change_name": "github-collector-2",
+  "type": "feature",
+  "rigor": "full",
+  "phases": ["S1", "S2", "S3", "S4", "S5", "S6"],
+  "current_phase": "S6",
+  "gates": {"S2": "passed", "S3": "passed", "S4": "passed", "S5": "passed", "S6": "passed"},
+  "convergence": {"S2": {"rounds": 3, "stable": 3}, "S3": {"rounds": 3, "stable": 3}},
+  "last_updated": "2026-06-24T11:08:59+07:00",
+  "last_agent": "developer",
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-06-23T10:10:00+07:00",
+      "completed": "2026-06-23T10:26:00+07:00",
+      "artifacts_produced": ["proposal.md", "specs/github-collector/spec.md (initial)", "stride-threat-model.md", "_glossary.md", "_decisions.jsonl", "_handoff.md"],
+      "key_outcome": "5 clarifications resolved (all CONFIRMED), 16 edge cases, STRIDE PASS (0 Critical / 3 High mitigated), 11 requirements drafted; openspec validate PASS"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-06-23T11:00:00+07:00",
+      "completed": "2026-06-23T11:16:00+07:00",
+      "artifacts_produced": ["specs/github-collector/spec.md (ACs + BRs + INTs + Structured Extract)", "_handoff.md", "_glossary.md", "_decisions.jsonl"],
+      "key_outcome": "23 ACs (16 CONFIRMED / 7 ASSUMED / 0 MISSING / 0 UNCLEAR), 12 BRs, 3 INTs; spec-auditor PASS (C1-C6); openspec validate PASS — awaiting SPEC LOCK"
+    },
+    {
+      "phase": "S2-rev1",
+      "agent": "analyst",
+      "started": "2026-06-23T16:56:00+07:00",
+      "completed": "2026-06-23T17:02:00+07:00",
+      "artifacts_produced": ["specs/github-collector/spec.md (config-driven revision)", "proposal.md", "_handoff.md", "_glossary.md", "_decisions.jsonl"],
+      "key_outcome": "SPEC LOCK NO-GO resolved: all tunables config-driven (max_items_per_repo, page_size, base_url, retry_policy object) via new BR-2-013/014 + AC-2-024..027; promoted AC-2-004/016/017/021/022/023 ASSUMED->CONFIRMED. Now 27 ACs (27 CONFIRMED / 0 ASSUMED / 0 MISSING / 0 UNCLEAR), 14 BRs, 3 INTs; spec-auditor PASS; openspec validate PASS"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-06-23T17:31:00+07:00",
+      "completed": "2026-06-23T17:54:00+07:00",
+      "artifacts_produced": ["design.md", "tasks.md", "_handoff.md", "_glossary.md", "_decisions.jsonl"],
+      "key_outcome": "8 ADRs, 1 outbound GitHub call (0 inbound API — no openapi per ADR-007), 0 DB tables (pure I/O); 21 tasks across 8 groups, 2 checkpoints, 27/27 ACs covered in design + tasks; cross-artifact-audit 0 CRITICAL; openspec validate PASS — awaiting DESIGN REVIEW"
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "started": "2026-06-24T10:00:00+07:00",
+      "completed": "2026-06-24T10:40:00+07:00",
+      "artifacts_produced": ["src/osspulse/github/config.py", "src/osspulse/github/errors.py", "src/osspulse/github/client.py", "src/osspulse/github/__init__.py", "src/osspulse/config.py (REPO_PATTERN)", "tests/test_github_client.py", "dev-test-report.md", "_handoff.md", "_decisions.jsonl"],
+      "key_outcome": "coverage 99.25% (client.py 100%), 21/21 required tasks done, 76 tests, 27/27 ACs exercised, 2 deviations (1 idiom, 1 security SSRF guard); ruff + openspec validate PASS"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "started": "2026-06-24T10:58:44+07:00",
+      "completed": "2026-06-24T11:10:00+07:00",
+      "artifacts_produced": ["qa-report.md", "_handoff.md", "_decisions.jsonl (+3 bug_finding entries)"],
+      "key_outcome": "GO — 0 Critical/0 High/3 Low bugs. 27/27 ACs independently verified. 2 shallow tests (BUG-2 token-leak 403 path, BUG-3 TLS verify), 1 edge-case guard gap (BUG-1 _parse_created). All production code correct. Dep audit: pip check clean, pip-audit unavailable."
+    }
+  ],
+  "active_concerns": [
+    "BUG-1 [EDGE-CASE] Low: _parse_created unguarded for non-string created_at — fix: add isinstance(created, str) guard",
+    "BUG-2 [AI-DETECTABLE] Low: test_auth_failures_fail_fast(403) missing token-absence assertion — test gap only, source correct",
+    "BUG-3 [AI-DETECTABLE] Low: TLS verify test thin — httpx limitation, source correct",
+    "Pre-existing: .env.example (3 lines) + no README.md — operator doc gap, outside this change scope",
+    "Architect decision pending: shared REPO_PATTERN still accepts '..' segments — only collector-level guard in place"
+  ],
+  "terminology": {
+    "Collector": "S2 component fetching raw items from GitHub via REST; pure I/O, no state/LLM",
+    "Newly-opened issue": "issue with created_at within the last lookback_days (UTC)",
+    "Pure I/O boundary": "Collector must not touch StateStore (S3) or LLM (S4)",
+    "Secondary rate limit": "403 + X-RateLimit-Remaining:0 — backoff, not a permanent auth failure",
+    "RawItem mapping": "item_id=str(number); body null->''; created_at=raw ISO string; url=html_url",
+    "Retry policy": "single config object: max_retries=3, backoff_base=1.0, multiplier=2.0, jitter=0.5, ceiling=60.0; Retry-After precedence; 4xx permanent",
+    "Config-driven tunable": "max_items_per_repo, page_size, base_url, retry-policy fields — read from config, never hardcoded in the fetch loop (BR-2-013/014)",
+    "GitHubCollector": "httpx adapter implementing ports.GitHubClient (src/osspulse/github/client.py)",
+    "_classify": "single status->{OK,RETRY,SKIP_REPO,FAIL_FAST} classifier; 403 split keys on X-RateLimit-Remaining:0",
+    "_parse_created": "Z->+00:00 ISO parse to tz-aware UTC for the cutoff compare only; RawItem.created_at stays raw"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  }
+    "priority_reading": [
+      "_handoff.md — S5->S6 GO reasoning, 3 Low bugs, fragile areas",
+      "qa-report.md — full bug list + follow-up recommendations"
+    ],
+    "watch_items": [
+      "BUG-1: _parse_created non-string guard (Low, post-merge fix)",
+      "BUG-2: test_auth_failures_fail_fast(403) token-absence assertion (Low, post-merge fix)",
+      "BUG-3: TLS verify test hardening (Low, structural limitation)",
+      "Shared REPO_PATTERN .. gap — architect decision needed"
+    ]
+  }
+}

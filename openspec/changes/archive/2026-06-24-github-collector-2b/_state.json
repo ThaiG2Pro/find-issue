@@ -1,0 +1,48 @@
+{
+  "ticket_id": "2b",
+  "feature_slug": "github-collector",
+  "change_name": "github-collector-2b",
+  "type": "bugfix",
+  "rigor": "lite",
+  "phases": ["S4", "S5", "S6"],
+  "current_phase": "S6",
+  "gates": {
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  },
+  "convergence": {},
+  "last_updated": "2026-06-24",
+  "last_agent": "developer",
+  "phase_history": [
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "completed": "2026-06-24",
+      "artifacts": ["client.py (BUG-1 fix)", "test_github_client.py (BUG-2, BUG-3 fixes)", "dev-test-report.md"],
+      "key_outcome": "coverage 98.89%, 76/76 tests, 3 bugs fixed, 0 deviations"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "completed": "2026-06-24",
+      "artifacts": ["qa-report.md"],
+      "key_outcome": "GO — 3/3 bugs verified, 76/76 passed, 0 regressions"
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "completed": "2026-06-24",
+      "artifacts": ["release.md"],
+      "key_outcome": "archived as 2026-06-24-github-collector-2b"
+    }
+  ],
+  "active_concerns": [],
+  "terminology": {},
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  }
+}

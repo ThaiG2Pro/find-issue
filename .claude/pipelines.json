@@ -1,0 +1,74 @@
+{
+  "$note": "Work-type pipelines (declarative). The orchestrator reads this: parse `sdlc <type> <slug>` (default type=feature), then run the type's `phases` IN ORDER, using each phase's agent + gate from the shared catalogs below. Phases, gates, and OpenSpec lifecycle are defined ONCE (reused by every type); each type only references them + sets delta mode and overrides. Edit per project to tune which phases a type runs.",
+
+  "lifecycle": {
+    "start":     "openspec new change \"<change-name>\"",
+    "implement": "/opsx:apply   (or the openspec-apply skill — loops tasks.md checkboxes)",
+    "validate":  "openspec change validate \"<change-name>\"",
+    "archive":   "openspec archive \"<change-name>\"   (merges spec deltas into openspec/specs/)"
+  },
+
+  "phaseCatalog": {
+    "S1": { "agent": "analyst",   "produces": "proposal.md + initial spec deltas" },
+    "S2": { "agent": "analyst",   "produces": "AC scenarios + Early Risk Flags + stride", "gate": "SPEC_LOCK" },
+    "S3": { "agent": "architect", "produces": "design.md + tasks.md (+ openapi.yaml)",     "gate": "DESIGN_REVIEW" },
+    "S4": { "agent": "developer", "produces": "implementation via /opsx:apply + dev-test-report.md", "gate": "BUILD" },
+    "S5": { "agent": "qa",        "produces": "qa-report.md + GO/NO-GO",                    "gate": "QA" },
+    "S6": { "agent": "developer", "produces": "openspec archive + release.md",             "gate": "RELEASE" }
+  },
+
+  "gateCatalog": {
+    "SPEC_LOCK":     "spec-auditor PASS  AND  openspec change validate passes",
+    "DESIGN_REVIEW": "cross-artifact-audit 0 CRITICAL  AND  openspec change validate passes",
+    "BUILD":         "tests green + coverage/sonar per .kiro/sdlc.config.json",
+    "QA":            "0 Critical/High bugs open; all ACs verified",
+    "RELEASE":       "migration reviewed + rollback plan + 30-min post-deploy stable"
+  },
+
+  "$rigor": "Each type carries a `rigor` field = the FLOOR the orchestrator may resolve to. 'full' = eligible for the convergence loop + .xlsx test cases (heavy, slow — for important / business-logic-tight work). 'lite' = single-pass audits + markdown test cases (fast — small features, bugfix, hotfix). 'lite' is a HARD floor: a type marked lite never runs full, even if sdlc.config gates.convergence=always. Resolution order (orchestrator): (1) runtime flag --rigor=full|lite on the sdlc command; (2) this type floor (lite types stay lite); (3) sdlc.config gates.convergence: always→full, never→lite, auto→ASK the user once at kickoff (full vs lite). The chosen rigor is persisted to _state.json.rigor so later sessions don't re-ask.",
+
+  "rigorEligible": ["feature", "rebuild", "cr"],
+
+  "types": {
+    "feature": {
+      "desc": "Full greenfield/new-capability pipeline.",
+      "deltaMode": "ADDED",
+      "rigor": "full",
+      "phases": ["S1", "S2", "S3", "S4", "S5", "S6"]
+    },
+    "rebuild": {
+      "desc": "Re-implement existing behavior. Like feature, but read the existing source for parity first.",
+      "deltaMode": "ADDED",
+      "rigor": "full",
+      "phases": ["S1", "S2", "S3", "S4", "S5", "S6"],
+      "prereq": "context-read existing source before S1"
+    },
+    "cr": {
+      "desc": "Change request to an existing capability. Spec delta uses MODIFIED requirements.",
+      "deltaMode": "MODIFIED",
+      "rigor": "full",
+      "phases": ["S1", "S2", "S3", "S4", "S5", "S6"],
+      "optionalPhases": ["S3"],
+      "note": "S3 only if the change alters design; otherwise skip straight to S4."
+    },
+    "bugfix": {
+      "desc": "Fast-track: clear root cause, no design change. Skip S1-S3.",
+      "deltaMode": "ADDED",
+      "rigor": "lite",
+      "phases": ["S4", "S5", "S6"],
+      "gateOverrides": { "S5": "regression-only (retest + regression scope; no full test design)" },
+      "note": "Orchestrator creates the isolation branch/worktree (git.isolation) before S4 — e.g. `bugfix/<ticket>-<slug>`. Still `openspec new change` with a short proposal + a spec delta ONLY if behavior changes. Escalate to full feature if scope grows."
+    },
+    "hotfix": {
+      "desc": "Emergency production fix. Minimal build + smoke test, deploy fast.",
+      "deltaMode": "ADDED",
+      "rigor": "lite",
+      "phases": ["S4", "S6"],
+      "gateOverrides": {
+        "S4": "minimal — fix + a regression test for the incident only",
+        "S6": "deploy + mandatory post-deploy verification"
+      },
+      "note": "Orchestrator creates the isolation branch/worktree (git.isolation) before S4 — `hotfix/<ticket>-<slug>`. Backfill spec delta + S5 retroactively after the incident if behavior changed."
+    }
+  }
+}

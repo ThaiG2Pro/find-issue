@@ -1,0 +1,217 @@
+# skill: openapi-example
+# description: Golden example of openapi.yaml — OpenAPI 3.0 spec for CMS Brand Management API. Response format: {data,meta} success, {errors,meta} error. Use as pattern for all openapi.yaml files.
+
+openapi: 3.0.3
+info:
+  title: CMS Brand Management API
+  version: 1.0.0
+  description: Internal CMS API for brand CRUD operations
+
+servers:
+  - url: '{host}/api'
+    variables:
+      host:
+        default: http://localhost
+
+security:
+  - CmsApiKey: []
+
+paths:
+  /internal/v1/brands:
+    get:
+      tags: [brands]
+      operationId: listBrands
+      summary: List brands with pagination and search
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string, maxLength: 255 }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/BrandResponse' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+    post:
+      tags: [brands]
+      operationId: createBrand
+      summary: Create a new brand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBrandRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/BrandResponse' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Duplicate brand name
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /internal/v1/brands/{id}:
+    get:
+      tags: [brands]
+      operationId: getBrandById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/BrandResponse' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    put:
+      tags: [brands]
+      operationId: updateBrand
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateBrandRequest' }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/BrandResponse' }
+                  meta: { $ref: '#/components/schemas/Meta' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Duplicate name }
+
+    delete:
+      tags: [brands]
+      operationId: deleteBrand
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Soft-deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    CmsApiKey:
+      type: apiKey
+      in: header
+      name: X-CMS-Api-Key
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: Missing/invalid API key
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    CreateBrandRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        description: { type: string, maxLength: 1000 }
+
+    UpdateBrandRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        description: { type: string, maxLength: 1000 }
+
+    BrandResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Meta:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        path: { type: string }
+        method: { type: string }
+
+    PaginatedMeta:
+      allOf:
+        - { $ref: '#/components/schemas/Meta' }
+        - type: object
+          properties:
+            pagination:
+              type: object
+              properties:
+                page: { type: integer }
+                limit: { type: integer }
+                total: { type: integer }
+                totalPages: { type: integer }
+
+    ErrorResponse:
+      type: object
+      properties:
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              code: { type: string }
+              message: { type: string }
+              field: { type: string }
+        meta:
+          type: object
+          properties:
+            timestamp: { type: string, format: date-time }
+            path: { type: string }
+            method: { type: string }
+            statusCode: { type: integer }

@@ -3,7 +3,7 @@ name: edge-case-enumerator
 description: >
   Systematically enumerate edge cases for a feature by category.
   Minimum 10 edge cases. Categories: input boundary, state transition,
-  concurrency, data integrity, permission, integration failure, UI/UX.
+  concurrency, data integrity, permission, integration failure, UI/UX, business rule.
   Use during S1 Step 4 when writing requirement pack.
 ---
 

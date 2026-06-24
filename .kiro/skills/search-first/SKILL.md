@@ -29,7 +29,7 @@ Use this skill when:
 │     Define what functionality is needed      │
 │     Identify language/framework constraints  │
 ├─────────────────────────────────────────────┤
-│  2. PARALLEL SEARCH (researcher agent)      │
+│  2. PARALLEL SEARCH (npm·PyPI·MCP·GitHub)   │
 │     ┌──────────┐ ┌──────────┐ ┌──────────┐  │
 │     │  npm /   │ │  MCP /   │ │  GitHub / │  │
 │     │  PyPI    │ │  Skills  │ │  Web      │  │
@@ -110,23 +110,8 @@ Invoke subagent with prompt:
 
 ## Integration Points
 
-### With planner agent
-The planner should invoke researcher before Phase 1 (Architecture Review):
-- Researcher identifies available tools
-- Planner incorporates them into the implementation plan
-- Avoids "reinventing the wheel" in the plan
-
-### With architect agent
-The architect should consult researcher for:
-- Technology stack decisions
-- Integration pattern discovery
-- Existing reference architectures
-
-### With iterative-retrieval skill
-Combine for progressive discovery:
-- Cycle 1: Broad search (npm, PyPI, MCP)
-- Cycle 2: Evaluate top candidates in detail
-- Cycle 3: Test compatibility with project constraints
+- **architect (S3)** — consult before locking ADR options: surface existing libraries/MCP servers so the design favours adopt-over-build (technology-stack + integration-pattern decisions).
+- **developer (S4)** — run before writing any utility/helper: if a battle-tested package exists, adopt it instead of hand-rolling.
 
 ## Examples
 

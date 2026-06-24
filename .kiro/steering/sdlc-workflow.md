@@ -26,21 +26,31 @@ Folder naming rules:
 - One folder per feature. Do NOT dump multiple features into one folder.
 - Folder is INPUT only — S1 output (`proposal.md`) lives in `openspec/changes/<change>/`, never in `docs/`.
 
-## Git Branch Policy (R-SDLC-003)
+## Git Branch / Worktree Policy (R-SDLC-003)
 
-**Mỗi feature PHẢI có nhánh riêng. KHÔNG code trên nhánh của feature cũ.**
+**Mỗi pipeline mới PHẢI được cô lập trên nhánh/worktree riêng. KHÔNG code trên nhánh protected
+(`main`/`master`/…) hay trên nhánh của change cũ.**
 
-Khi orchestrator nhận lệnh `sdlc feature {ticket} {slug}`:
+Đây là bước **bắt buộc, tự động** do orchestrator chạy khi tạo change mới (mọi type:
+feature/cr/rebuild/bugfix/hotfix) — chi tiết ở `sdlc-orchestration-core` §New Change Setup step 2.
+Hành vi được điều khiển bởi `sdlc.config.json` → khối `git`:
 
 ```
-1. Xác định base branch: nhánh hiện tại (feature trước đã hoàn thành)
-2. Tạo và switch sang nhánh mới TRƯỚC KHI bắt đầu S1:
-   git checkout -b {ticket}-SPEC-{N}
-   Ví dụ: 71194-SPEC-03
-3. Thông báo cho user: "✅ Đã tạo và switch sang nhánh {branch}"
+1. Base branch = nhánh hiện tại.
+2. Chọn method theo git.isolation (ask → hỏi dev; branch | worktree | off).
+3. Tạo TRƯỚC phase đầu (S1 cho feature/cr/rebuild, S4 cho bugfix/hotfix):
+   • branch  : git checkout -b {type}/{ticket}-{slug}      (vd feature/71194-voucher-redeem)
+   • worktree: git worktree add {worktree_path} -b {branch} → mở Kiro trong thư mục đó, code ở đó
+4. Ghi isolation.{method,branch,worktree_path,base_branch} vào _state.json.
+5. Thông báo: "✅ Đã tạo {branch|worktree} {name}". Lệnh git lỗi → STOP, không tạo change.
 ```
 
-Naming: `{ticket-id}-SPEC-{N}` (e.g., `71194-SPEC-03`). Hotfix: `hotfix/{ticket-id}-{slug}`.
+Naming mặc định (`git.branch_naming`): `{type}/{ticket}-{slug}` — vd `feature/71194-voucher-redeem`,
+`bugfix/71194-null-guard`, `hotfix/71194-cache-stampede`. Đổi mẫu trong `sdlc.config.json` nếu cần.
+
+> Chỉ orchestrator được phép tạo nhánh/worktree (shell guard chỉ cho `git checkout -b`/`switch -c`/
+> `worktree add`). Mọi git mutation khác (add/commit/checkout-file/reset/merge) vẫn bị chặn — code
+> chỉ do developer (S4) viết.
 
 ---
 

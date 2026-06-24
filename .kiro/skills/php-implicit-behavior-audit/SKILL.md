@@ -45,12 +45,12 @@ Two real cases this skill catches early (from SPEC-04 reserve flow):
 
 ## Input
 
-- PHP source files relevant to the feature (use `SOURCE_CODE_ANALYSIS.md` to locate)
-- Vendor packages under `vendor/dayonevn/` (often contain merchant logic — check both
-  `app/` AND `vendor/dayonevn/`)
+- PHP source files relevant to the feature (locate via `context/legacy-ref.md` → Reference Source Location)
+- Vendor/package dirs the legacy app pulls business logic from — check both `app/` AND any
+  vendor path named in `context/legacy-ref.md` (merchant logic often lives in vendor packages)
 - DB schema for any tables the feature writes to (note shared tables)
-- `docs/knowledge/SPEC-*.md` for the endpoint
-- Existing `docs/40-mapping/01-method-mapping.md` if available
+- Knowledge folder docs for the endpoint (`docs/{ticket_id}-{slug}/`, if present)
+- Any legacy method→Node mapping doc listed under `context/legacy-ref.md` / `extraDocs`
 
 ## Audit Checklist (5 categories)
 
@@ -68,7 +68,7 @@ For each PHP behavior the spec inherits, run all 5 checks:
 
 ### 2. Shared Table / Cross-Endpoint Writes
 - Q: Is this DB table written by **multiple endpoints**? (grep for `INSERT` / model
-  `::create([` across `app/` and `vendor/dayonevn/`)
+  `::create([` across `app/` and any vendor path from `context/legacy-ref.md`)
 - Q: Per column, which endpoint(s) **own writes**? Which leave it at default/NULL?
 - Q: Are there downstream consumers (analytic queries, exports, reports, monitoring
   dashboards) that depend on per-endpoint shape?
@@ -179,8 +179,8 @@ Lean toward **CONTRACT** when:
 - ❌ Classifying everything as ACCIDENT (cavalier — may break POS clients silently)
 - ❌ Skipping the audit when feature "looks simple" — these 5 categories trigger most
   on simple-looking features
-- ❌ Forgetting to check `vendor/dayonevn/` — merchant logic often lives there, not
-  in `app/`
+- ❌ Forgetting to check vendor/package dirs — merchant logic often lives there, not
+  in `app/` (see `context/legacy-ref.md` for which paths)
 
 ## Cross-References
 
@@ -188,5 +188,4 @@ Lean toward **CONTRACT** when:
 - Output entries `[CONTRACT]` → analyst writes ACs with source-citing PHP file:line
 - Output entries `[ACCIDENT]` → analyst tags `[ASSUMED]` in AC; architect picks
   design in /s3
-- See `SOURCE_CODE_ANALYSIS.md` for PHP source map
-- See `docs/40-mapping/01-method-mapping.md` for known PHP method → Node file mapping
+- See `context/legacy-ref.md` for the PHP source map + any PHP method → Node file mapping

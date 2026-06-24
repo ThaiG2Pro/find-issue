@@ -44,3 +44,4 @@ treat it as a `cr`/`feature` continuation (the change + spec delta already exist
 phase the core skill computes).
 
 → For setup, routing, state, gates, CPP, cross-spec, and disputes: **follow `sdlc-orchestration-core`.**
+It drives the gate audits (`spec-auditor` at S2, `cross-artifact-audit` at S3) and `sprint-retro` after S6 archive.

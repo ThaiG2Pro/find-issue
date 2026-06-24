@@ -38,22 +38,23 @@ Kiểm tra từng SDLC gate đã được respect:
 | Gate | Expected Output | Actual | Notes |
 |------|-----------------|--------|-------|
 | S1 → S2 | Requirement Pack với ACs | ✅/❌ | |
-| S2 → S3-sketch | Functional Spec approved | ✅/❌ | |
-| S3-sketch → S3 | Design Sketch approved | ✅/❌ | |
-| S3 → S4 | Spec Lock (no changes after this) | ✅/❌ | |
-| S4 → S5 | Tests pass + coverage ≥80% | ✅/❌ | |
+| 🔒 S2 SPEC LOCK | spec-auditor PASS + `openspec change validate` + no "TBD" | ✅/❌ | |
+| 🔍 S3 DESIGN REVIEW | cross-artifact-audit 0 CRITICAL (sketch→full) | ✅/❌ | |
+| S4 → S5 | Tests pass + coverage ≥ `coverage.min` | ✅/❌ | |
 | S5 → S6 | QA GO + 0 Critical bugs | ✅/❌ | |
 
 **Gate violations** = Late-stage changes = Cost multiplier applied.
 
 ### 2. Cost Escalation Audit
 
-Dựa trên SDLC cost model (from `sdlc-workflow.md`):
+Dựa trên SDLC cost model (authoritative table in `sdlc-workflow.md`):
 
 ```
-S4 change in spec → 5× cost
-S5 change in design → 5-8× cost
-S6 change in S4 code → 2-3× cost
+S3 sketch → S2 (spec gap)  → 3×
+S4 → S3 (design gap)       → 5×
+S4 → S2 (spec gap)         → 5-8×
+S5 → S3 (design gap)       → 20×
+S5 → S2 (spec gap)         → 25×
 ```
 
 Liệt kê:
@@ -106,7 +107,7 @@ Liệt kê:
 - [ ] [Owner] Update architect review hook to catch {specific pattern}
 
 ### Skills/Knowledge Base
-- [ ] [Owner] Add pattern X to backend-patterns/SKILL.md
+- [ ] [Owner] Add pattern X to coding-standards/SKILL.md
 - [ ] [Owner] Create new skill for Y
 
 ### Team/AI
@@ -119,9 +120,9 @@ Liệt kê:
 ```markdown
 ## Sprint Retro: {Feature/Sprint Name}
 
-### Gate Compliance: X/6 gates passed (Y violations)
+### Gate Compliance: X/5 gates passed (Y violations)
 **Violations:**
-- S3→S4 Spec Lock broken: 2 requirement changes after S4 started
+- S2 SPEC LOCK broken: 2 requirement changes after S4 started
   → Cost impact: estimated 2×5× = 10× wasted effort on 2 tasks
 
 ### AI Performance
@@ -139,7 +140,7 @@ Liệt kê:
 ### Action Items (3 max per retro)
 1. [ ] Add "archive vs delete" disambiguation to S1 intake template [Analyst] [+1wk]
 2. [ ] Create pagination-response skill [Developer] [+1wk]
-3. [ ] Add spec lock warning to feature-orchestrator hook [DevOps] [+2wk]
+3. [ ] Add spec lock warning to sdlc-full orchestrator hook [DevOps] [+2wk]
 
 ### Trend: Sprint Health Score: 72/100 (prev: 65) ↑
 ```

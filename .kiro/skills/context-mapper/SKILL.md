@@ -47,7 +47,7 @@ entries were skipped (missing). Re-running is safe and idempotent.
 
 ```jsonc
 {
-  "always":   { "knowledgeBase": ["steering", "specs", "context/project.md", "context/glossary.md"] },
+  "always":   { "knowledgeBase": ["steering", "openspec", "sdlc.config.json", "context/project.md", "context/glossary.md"] },
   "agents": {
     "architect": {
       "skills": ["cross-artifact-audit", "api-design"],

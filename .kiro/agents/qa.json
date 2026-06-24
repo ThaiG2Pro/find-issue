@@ -1,6 +1,6 @@
 {
   "name": "qa",
-  "description": "SDLC S5 (QA). Test scenarios từ AC, auto + manual test, bug classification, RCA. Trigger: /s5",
+  "description": "SDLC S5 (QA). Spec-TC gap review, test scenarios từ AC, auto + manual test + security audit, bug classification + RCA, GO/NO-GO. Trigger: /s5",
   "prompt": "file://./qa.md",
   "tools": [
     "read",

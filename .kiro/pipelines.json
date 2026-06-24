@@ -57,7 +57,7 @@
       "rigor": "lite",
       "phases": ["S4", "S5", "S6"],
       "gateOverrides": { "S5": "regression-only (retest + regression scope; no full test design)" },
-      "note": "Still `openspec new change` with a short proposal + a spec delta ONLY if behavior changes. Escalate to full feature if scope grows."
+      "note": "Orchestrator creates the isolation branch/worktree (git.isolation) before S4 — e.g. `bugfix/<ticket>-<slug>`. Still `openspec new change` with a short proposal + a spec delta ONLY if behavior changes. Escalate to full feature if scope grows."
     },
     "hotfix": {
       "desc": "Emergency production fix. Minimal build + smoke test, deploy fast.",
@@ -68,7 +68,7 @@
         "S4": "minimal — fix + a regression test for the incident only",
         "S6": "deploy + mandatory post-deploy verification"
       },
-      "note": "Branch `hotfix/<ticket>-<slug>`. Backfill spec delta + S5 retroactively after the incident if behavior changed."
+      "note": "Orchestrator creates the isolation branch/worktree (git.isolation) before S4 — `hotfix/<ticket>-<slug>`. Backfill spec delta + S5 retroactively after the incident if behavior changed."
     }
   }
 }

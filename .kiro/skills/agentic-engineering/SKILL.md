@@ -129,7 +129,7 @@ Outcome: Success
 
 ## Integration with Other Skills
 
-- **tdd-workflow**: Combine with eval-first loop for test-driven development
+- **test-generator**: Combine with the eval-first loop for test-driven development
 - **verification-loop**: Use for continuous validation during implementation
 - **search-first**: Apply before implementation to find existing solutions
 - **coding-standards**: Reference during code review phase

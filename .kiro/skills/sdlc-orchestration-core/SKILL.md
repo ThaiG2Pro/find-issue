@@ -72,6 +72,21 @@ fixes. Two outcomes: **`full`** (convergence loop on the spec/design gates + `.x
 Persist the result to `_state.json` as `"rigor":"full"|"lite"` so later sessions never re-ask.
 When `rigor=lite`, every gate is single-pass (legacy behavior); skip the convergence loop entirely.
 
+### Test-case artifact (chosen PER pipeline)
+
+The QA-manager test-case deliverable (`qa/testcases.xlsx`) is decided **per change** and persisted to
+`_state.json` as `"testcase_export":"xlsx"|"md"|"none"`. Resolve ONCE at kickoff, in this order:
+1. **Runtime flag** on the `sdlc …` command — `--xlsx` → `xlsx`, `--md` → `md`,
+   `--no-xlsx`/`--no-testcases` → `none`. No question asked.
+2. **Config seed** — read `qa.testcase_export`. `xlsx`/`md`/`none` = the offered default; `auto` =
+   derive a default by rigor (`full`→xlsx, `lite`→md, **hotfix→none**).
+3. **ASK one question at kickoff** (skip only if a runtime flag already pinned it):
+   > 📋 **Test cases cho QA manager** cho change này? `xlsx` (Excel — QC/sếp review) · `md` (gọn) ·
+   > `none` (bỏ). [mặc định: {derived}]
+
+Persist to `_state.json.testcase_export`. The QA agent (S5) READS this — never re-derives, never
+re-asks. Important projects: set `qa.testcase_export:"xlsx"` (offered as default) or pass `--xlsx`.
+
 ## OpenSpec Workspace Contract
 
 The pipeline is **OpenSpec-backed**. No per-ticket spec folder, no active-feature pointer file.
@@ -131,8 +146,9 @@ Run `openspec list` → enumerate active changes (source of truth).
 
 ```
 IF no active change AND action = new:
+  → Isolate: create the pipeline's branch/worktree per git.isolation (see §New Change Setup step 2)
   → openspec new change "<change-name>"  (derive kebab-case name)
-  → Create CPP artifacts + _state.json (see §New Change Setup) with type + phases persisted
+  → Create CPP artifacts + _state.json (see §New Change Setup) with type + phases + isolation persisted
   → Tell user: "Switch to {first_phase_agent}: /agent swap → {agent} → {first_phase_command}"
 
 IF active change AND action = continue:
@@ -162,7 +178,12 @@ When user says "approve", run the corresponding audit BEFORE approving:
 | approve S2 (SPEC LOCK) | `spec-auditor` + `openspec change validate` + CPP contract | proposal.md + spec deltas + _handoff.md + _decisions.jsonl + _glossary.md + _state.json |
 | approve S3 (DESIGN REVIEW) | `cross-artifact-audit` + `openspec change validate` + CPP contract | spec deltas + design.md + openapi.yaml + tasks.md + CPP artifacts |
 | approve S4 (BUILD) | read dev-test-report.md + CPP contract | dev-test-report.md + CPP artifacts |
-| approve S5 (GO/NO-GO) | read qa-report.md + CPP contract | qa-report.md + CPP artifacts |
+| approve S5 (GO/NO-GO) | read qa-report.md + CPP contract + **test-case artifact check** | qa-report.md + CPP artifacts + (if selected) `qa/testcases.{xlsx\|md\|csv}` |
+
+**S5 test-case prerequisite (hard):** if `_state.json.testcase_export` ∈ {`xlsx`,`md`} → the file
+`openspec/changes/<change>/qa/testcases.{xlsx|md|csv}` MUST exist and have ≥1 TC row, else **BLOCK
+the gate (no auto-pass) even with 0 Critical/High** — tell qa to run `qa-test-design` Bước 4 first.
+If `testcase_export = none` → skip this check entirely (artifact is intentionally not produced).
 
 **Execution:** run `pipeline-guard.mjs --gate <phase>` FIRST (deterministic order/artifact/
 prior-gate check — STOP on exit 1) → load the audit skill (S2/S3) or read the report (S4/S5) →
@@ -275,30 +296,53 @@ Any check fails → block the gate, name the agent that must complete the artifa
 ### New Change Setup
 
 1. Derive kebab-case `<change-name>` from ticket_id + slug. If ticket_id missing → ASK.
-2. `openspec new change "<change-name>"` → creates `<CHANGE_DIR>`.
    - **Resolve `rigor` now** (see §Rigor & convergence): runtime flag → type floor → config. For a
      rigor-eligible type with `gates.convergence=auto`, ASK the one kickoff question before writing state.
-3. Create `_state.json` inside `<CHANGE_DIR>`. **MANDATORY: persist `type` + `phases` + `rigor`**
-   (from `pipelines.json` + the resolution above) so a later session knows which pipeline runs and
-   how hard the gates run — never re-derive type or re-ask rigor from conversation, read it here.
+   - **Resolve `testcase_export` now** (see §Test-case artifact): runtime flag → config seed → ASK
+     (unless a flag pinned it). Persist alongside `rigor`.
+2. **Isolate the pipeline (MANDATORY when `git.isolation` ≠ `off`).** Read `git.isolation` +
+   `git.default_method` + `git.branch_naming` + `git.worktree_path` + `git.protected_branches` from
+   `sdlc.config.json`. Every NEW pipeline gets its own branch/worktree — NEVER code on a protected
+   branch or a previous feature's branch.
+   - **Pick method**: `branch`/`worktree` → use it. `ask` → ask the user once ("branch hay worktree
+     cho change này?"), default = `git.default_method`.
+   - **Name** = fill `git.branch_naming` (`{type}`/`{ticket}`/`{slug}`), e.g. `feature/71194-voucher-redeem`.
+   - **branch**: `git checkout -b <branch>` (branches from current HEAD = base branch). Warn if the
+     current branch ∈ `protected_branches` is the base — that is expected; just confirm.
+   - **worktree**: `git worktree add <path> -b <branch>` where `<path>` = filled `git.worktree_path`.
+     Then tell the user to open Kiro in `<path>` and continue the pipeline THERE. Note: the worktree
+     gets its own `openspec/` checkout; `memory/` (lessons) is not carried in — `mkdir <path>/memory`
+     or symlink it to the main repo if you want shared lessons.
+   - You MAY run ONLY these git commands (`git checkout -b` / `git switch -c` / `git worktree add`,
+     plus read-only `git status` / `git rev-parse` / `git branch --list`); the shell guard blocks any
+     other git. **If the command fails (branch exists, detached HEAD, dirty tree) → STOP, surface the
+     error, do NOT proceed to `openspec new change`.** Then announce: "✅ Đã tạo {branch|worktree} `<name>`".
+3. `openspec new change "<change-name>"` → creates `<CHANGE_DIR>` (now on the isolated branch/worktree).
+4. Create `_state.json` inside `<CHANGE_DIR>`. **MANDATORY: persist `type` + `phases` + `rigor` + the
+   isolation `branch`** (from `pipelines.json` + the resolutions above) so a later session knows which
+   pipeline runs, how hard the gates run, and which branch/worktree it lives on — never re-derive these
+   from conversation, read them here.
    ```json
-   {"ticket_id":"{id}","feature_slug":"{slug}","change_name":"{change-name}","type":"{type}","rigor":"{rigor}","phases":{phases_array},"current_phase":"NEW","gates":{},"convergence":{},"last_updated":"{date}","last_agent":"orchestrator","phase_history":[],"active_concerns":[],"terminology":{},"next_action":{"agent":"{first_phase_agent}","command":"{first_phase_command}","prerequisite":null,"blocker":null,"priority_reading":[],"watch_items":[]}}
+   {"ticket_id":"{id}","feature_slug":"{slug}","change_name":"{change-name}","type":"{type}","rigor":"{rigor}","testcase_export":"{xlsx|md|none}","phases":{phases_array},"isolation":{"method":"{branch|worktree}","branch":"{branch-name}","worktree_path":"{path|null}","base_branch":"{base}"},"current_phase":"NEW","gates":{},"convergence":{},"last_updated":"{date}","last_agent":"orchestrator","phase_history":[],"active_concerns":[],"terminology":{},"next_action":{"agent":"{first_phase_agent}","command":"{first_phase_command}","prerequisite":null,"blocker":null,"priority_reading":[],"watch_items":[]}}
    ```
    - `{phases_array}` = `types[<type>].phases`. `{first_phase_agent}`/`{first_phase_command}` =
      first phase via `phaseCatalog` (feature/cr/rebuild → `analyst`,`/s1 {id} {slug}`;
      bugfix/hotfix → `developer`,`/s4 {id} {slug}`). Do NOT hardcode analyst/S1.
-4. Create CPP artifacts: `_glossary.md` (header row), `_decisions.jsonl` (empty), `_handoff.md`
+5. Create CPP artifacts: `_glossary.md` (header row), `_decisions.jsonl` (empty), `_handoff.md`
    (empty). Verify `openspec list` shows `<change-name>`.
-5. Tell user the change is initialized + the exact next step (swap to first-phase agent).
+6. Tell user the change is initialized + the branch/worktree it lives on + the exact next step (swap to first-phase agent).
 
 ## Rules
 
 - ❌ NEVER do analysis, design, coding, or testing yourself.
 - ❌ NEVER approve a gate without an explicit `approve`/`ok`/`LGTM` (unless `gates.auto_pass` + 0 blockers).
 - ❌ NEVER create duplicate JSON keys in `_state.json` — READ → parse → modify in-memory → WRITE whole file.
-- ❌ Orchestrator does NOT run build/test/lint. It MAY run read-only OpenSpec CLI
-  (`list`/`status`/`change validate`). Mutating commands (`new change`, `archive`) and
-  `/opsx:apply` run at setup/S6 or by the developer agent.
+- ❌ Orchestrator does NOT run build/test/lint and does NOT write code via the shell. It MAY run
+  read-only OpenSpec CLI (`list`/`status`/`change validate`). Mutating commands (`new change`,
+  `archive`) and `/opsx:apply` run at setup/S6 or by the developer agent.
+- ✅ The ONLY shell-mutation the orchestrator may run is creating a NEW pipeline's isolation
+  branch/worktree (`git checkout -b` / `git switch -c` / `git worktree add`), at §New Change Setup
+  step 2. The shell guard blocks every other git (add/commit/checkout-file/reset/merge/branch-delete).
 - ✅ Always show current state + exact next step. Always update `_state.json` + `_progress.md` on gate change.
 
 ## Dispute Resolution Protocol

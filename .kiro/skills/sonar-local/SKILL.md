@@ -31,23 +31,20 @@ npx vitest run --coverage
 ## Bước 2: Chạy scan
 
 ```bash
-SONAR_TOKEN=<token> ./scripts/sonar-local.sh
-```
-
-Hoặc chỉ định project key khác:
-
-```bash
-SONAR_TOKEN=<token> SONAR_PROJECT_KEY=ten-repo ./scripts/sonar-local.sh
-```
-
-## Chạy thủ công (không dùng script)
-
-```bash
 npx sonarqube-scanner \
   -Dsonar.projectKey=<ten_repo> \
   -Dsonar.sources=. \
   -Dsonar.host.url=http://<your-sonar-host> \
-  -Dsonar.login=<api_token_sonar>
+  -Dsonar.login=<api_token_sonar> \
+  -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+```
+
+Nếu repo đã có sẵn script wrapper `scripts/sonar-local.sh` (không phải kit scaffold ra), có thể chạy gọn hơn:
+
+```bash
+SONAR_TOKEN=<token> ./scripts/sonar-local.sh
+# đổi project key:
+SONAR_TOKEN=<token> SONAR_PROJECT_KEY=ten-repo ./scripts/sonar-local.sh
 ```
 
 ## Đọc kết quả
@@ -66,7 +63,7 @@ Kết quả tại: `http://<your-sonar-host>/dashboard?id=<ten_repo>`
 
 **Lỗi: Coverage not found**
 - Chạy `npx vitest run --coverage` trước
-- Kiểm tra `sonar-project.properties` có đúng path `coverage/lcov.info`
+- Truyền `-Dsonar.javascript.lcov.reportPaths=coverage/lcov.info` trực tiếp, hoặc nếu dùng `sonar-project.properties` thì kiểm tra path này khớp
 
 **Lỗi: Unauthorized**
 - Token hết hạn hoặc sai → tạo token mới trên SonarQube UI

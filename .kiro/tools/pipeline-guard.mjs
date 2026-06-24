@@ -123,6 +123,18 @@ function artifactsPresent(phase) {
     const hasDelta = existsSync(specsDir) && readdirSync(specsDir).length > 0;
     if (!hasDelta) missing.push('specs/** (≥1 requirement spec delta)');
   }
+  // S5: the test-case deliverable is required ONLY when the pipeline selected it
+  // (_state.json.testcase_export ∈ {xlsx,md}); `none` or a legacy state without the key skips it.
+  // The qa generator may fall back to .csv when openpyxl is absent, so xlsx accepts xlsx OR csv.
+  if (phase === 'S5') {
+    const te = String(state.testcase_export || '').toLowerCase();
+    if (te === 'xlsx' || te === 'md') {
+      const cands = te === 'md' ? ['qa/testcases.md'] : ['qa/testcases.xlsx', 'qa/testcases.csv'];
+      if (!cands.some((f) => existsSync(join(CHANGE_DIR, f)))) {
+        missing.push(`${cands.join(' or ')} (testcase_export=${te})`);
+      }
+    }
+  }
   return missing;
 }
 

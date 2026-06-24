@@ -225,6 +225,46 @@ Khi cần dùng skill: `read` file `.kiro/skills/{skill-name}/SKILL.md` → foll
 **When in execution**: Step 5 (self-review)
 **How to use**: Load skill → run its checklist against new code → fix violations before checkpoint
 
+### search-first — Dùng khi: bắt đầu một task implementation mới
+
+**Trigger**: Trước khi viết utility/helper/abstraction mới hoặc thêm dependency (Step 3, per-task step 3)
+**Input**: Mô tả functionality cần build + language/framework constraints từ `context/stack.md`
+**Output**: Decision Adopt / Extend / Compose / Build — reuse existing code/lib thay vì viết mới
+**When in execution**: Step 3 (find 1 existing similar file → follow its pattern) + Code Intelligence section
+**How to use**: Load skill → Quick Mode checklist (repo? npm/PyPI? MCP? skill?) → chỉ viết custom khi không có sẵn
+
+### api-documentation-checker — Dùng khi: implement controller/handler
+
+**Trigger**: Sau khi viết controller (task type = Controller/Handler), trước khi present S4 BUILD gate
+**Input**: Controller file path (hoặc cả module dir)
+**Output**: OpenAPI decorator completeness report — Critical/Warning/Passed + score %
+**When in execution**: Step 3 (task type = Controller/Handler), Step 7a (S4 gate, trước BUILD gate)
+**How to use**: Load skill → cung cấp controller path → fix Critical findings (missing @ApiResponse/@ApiProperty) trước checkpoint
+
+### sonar-local — Dùng khi: muốn check code quality trước khi đẩy lên CI
+
+**Trigger**: Trước final checkpoint hoặc khi debug Sonar CI check fail
+**Input**: Coverage report đã generate (`coverage/lcov.info`) + SONAR_TOKEN
+**Output**: Sonar dashboard — Coverage / Bugs / Vulnerabilities / Duplications / Code Smells vs ngưỡng pass
+**When in execution**: Step 6 (sau verify coverage), trước Step 7a S4 gate
+**How to use**: Load skill → generate coverage → `SONAR_TOKEN=… ./scripts/sonar-local.sh` → fix Bugs/Vulns = 0
+
+### deployment-patterns — Dùng khi: S6 Release prep
+
+**Trigger**: Chuẩn bị release artifacts (S6 Step 3), viết rollback plan / migration checklist
+**Input**: Migrations created trong S4 + design.md § DB Schema + deploy strategy
+**Output**: Deploy strategy (Direct/Blue-Green/Canary), rollback plan template, S6 production readiness checklist
+**When in execution**: S6 Step 2 (migration review), S6 Step 3 (generate release.md)
+**How to use**: Load skill → chọn deploy strategy theo risk → fill rollback plan + readiness checklist vào release.md
+
+### agentic-engineering — Dùng khi: plan execution của một segment lớn
+
+**Trigger**: Đầu một S4 segment có task phức tạp/multi-risk, hoặc khi review AI-generated code
+**Input**: Task list của segment hiện tại + completion criteria
+**Output**: 15-min unit decomposition, eval-first loop, review focus (invariants/edge cases/security)
+**When in execution**: Step 3 (decompose + sequence tasks), Step 5 (self-review focus for AI-written code)
+**How to use**: Load skill → decompose task thành 15-min units (1 risk mỗi unit) → eval-first → review theo checklist (bỏ qua style-only)
+
 ## Golden Examples (read on demand via `read` tool — NOT pre-loaded)
 
 - `.kiro/agents/examples/dev-test-report-example.md` — dev-test-report.md format

@@ -1,14 +1,16 @@
 ---
 name: security-audit
 description: >
-  Deep OWASP security audit cho NestJS modules. Secrets, input validation,
-  SQL injection, auth guards, logging PII, XSS, CSRF, file uploads, security headers.
+  Deep OWASP security audit cho request handlers + services (any stack).
+  Secrets, input validation, SQL injection, auth guards, logging PII, XSS, CSRF, file uploads, security headers.
   Dùng khi audit toàn module hoặc trước khi merge feature nhạy cảm.
 ---
 
 # Security Audit — My Project
 
 Deep security review theo OWASP Top 10, align với `.kiro/steering/security.md`.
+
+> **Stack-agnostic**: Code blocks below are **NestJS/Prisma examples** — the OWASP categories and checklist items are universal. For Laravel / Next.js / other stacks, apply the equivalent mechanism (see `context/stack.md`): e.g. validation = class-validator DTO **or** Laravel FormRequest **or** zod schema; parameterized query = Prisma **or** Eloquent/query bindings; guards = NestJS `@UseGuards` **or** Laravel middleware/policies **or** Next.js middleware.
 
 ## When to Activate
 
@@ -91,8 +93,8 @@ const users = await this.repo
 ```
 
 - [ ] No raw SQL with string concatenation
-- [ ] All queries use Prisma parameterized approach
-- [ ] No `query()` with interpolated strings
+- [ ] All queries use the ORM's parameterized approach (Prisma / Eloquent bindings / TypeORM QueryBuilder params)
+- [ ] No `query()` / `DB::raw()` with interpolated strings
 
 ### 4. Authentication & Authorization
 
@@ -159,7 +161,7 @@ app.use(helmet({
 | A03 | Injection | Parameterized queries + input validation |
 | A04 | Insecure Design | Security reviewed in S3 design phase |
 | A05 | Security Misconfiguration | Debug off in prod + security headers |
-| A06 | Vulnerable Components | npm audit + Trivy in CI |
+| A06 | Vulnerable Components | dependency audit in CI (npm/yarn audit, composer audit, Trivy) |
 | A07 | Auth Failures | Strong password policy + JWT expiry |
 | A08 | Data Integrity | Lock files + verify deps |
 | A09 | Logging Failures | Structured logging + no PII |

@@ -51,7 +51,7 @@ For each AC-ID from the spec deltas:
 **C. API Contract Mismatch** (HIGH)
 - Endpoint in design.md but missing from openapi.yaml
 - Endpoint in openapi.yaml but not in design.md
-- Response format not matching `{ data, meta }` / `{ errors, meta }` convention
+- Response format not matching the project's API convention (`context/conventions.md`)
 
 **D. Terminology Drift** (MEDIUM)
 - Same entity named differently across files (e.g., "product" vs "item")

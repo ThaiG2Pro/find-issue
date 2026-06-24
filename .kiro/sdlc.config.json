@@ -26,16 +26,29 @@
 
   "sonar_scan": false,
 
+  "git": {
+    "isolation": "ask",
+    "default_method": "branch",
+    "branch_naming": "{type}/{ticket}-{slug}",
+    "worktree_path": "../{repo}-{ticket}-{slug}",
+    "protected_branches": ["main", "master", "production", "develop", "release"]
+  },
+
   "$docs": {
     "gates.auto_pass": "true = orchestrator auto-approves a gate when its audit has 0 blockers (still stops on any blocker). false = always require explicit human approve.",
     "gates.convergence": "Rigor of the quality gates. auto = ASK once at kickoff (full vs lite) for feature/cr/rebuild; bugfix/hotfix are always lite. always = force full (convergence loop) on every change. never = always single-pass (legacy). A runtime flag --rigor=full|lite on the sdlc command overrides this. Honored by the orchestrator.",
     "gates.stable_rounds": "When rigor=full, a convergence gate re-runs its audit until the blocker/gap list is identical this many consecutive rounds before it can PASS. Higher = stricter + slower.",
     "gates.convergence_gates": "Which gates run the convergence loop when rigor=full. Others stay single-pass. Default: spec (SPEC_LOCK) + design (DESIGN_REVIEW) — where business-logic gaps hide.",
-    "qa.testcase_export": "Test-case artifact format from qa-test-design. auto = .xlsx when rigor=full (feature/cr/rebuild), markdown when lite (bugfix→md, hotfix→skip). xlsx/md = force that format. none = skip the test-case artifact. Runtime --xlsx/--no-xlsx overrides.",
+    "qa.testcase_export": "DEFAULT SEED for the per-pipeline test-case artifact choice (not the final word). At kickoff the orchestrator resolves PER CHANGE: runtime flag (--xlsx/--md/--no-xlsx) → this config seed → ASK one question, then persists the answer to _state.json.testcase_export — which is what the qa agent reads at S5. Values: auto = derive default by rigor (full→xlsx, lite→md, hotfix→none) then ask; xlsx/md/none = that value is the offered default. When the resolved value is xlsx/md, the file qa/testcases.{xlsx|md|csv} is a HARD prerequisite of the S5 gate. Important projects: set xlsx.",
     "coverage.diff_threshold": "% of CHANGED lines that must be covered (developer S4 gate).",
     "coverage.lines_threshold / branches_threshold": "Overall coverage floor (developer S4 gate).",
     "security.stride_analysis": "auto = run STRIDE threat-model only when the feature touches auth/payment/PII; always = every feature; never = skip. Honored by analyst (early risk) + qa.",
     "test_framework": "auto = use the framework in context/stack.md; or pin one (e.g. vitest, jest, playwright, pytest, phpunit).",
-    "sonar_scan": "true = run a SonarQube quality gate in S4 if configured; false = skip."
+    "sonar_scan": "true = run a SonarQube quality gate in S4 if configured; false = skip.",
+    "git.isolation": "Cô lập code cho mỗi pipeline MỚI. ask = orchestrator hỏi branch-hay-worktree mỗi change mới; branch = luôn git checkout -b tại chỗ; worktree = luôn git worktree add thư mục riêng; off = không tự cô lập (KHÔNG khuyến nghị). Khi != off, orchestrator tạo nhánh/worktree ngay khi `openspec new change`, TRƯỚC phase đầu.",
+    "git.default_method": "Dùng khi isolation=ask và user không nêu rõ: branch | worktree.",
+    "git.branch_naming": "Mẫu tên nhánh. Placeholder: {type} (feature/cr/rebuild/bugfix/hotfix), {ticket}, {slug}.",
+    "git.worktree_path": "Mẫu đường dẫn thư mục worktree (chỉ khi method=worktree). Placeholder: {repo} {type} {ticket} {slug}.",
+    "git.protected_branches": "KHÔNG được code trực tiếp trên các nhánh này — orchestrator phải tạo nhánh/worktree mới trước khi vào phase đầu."
   }
 }

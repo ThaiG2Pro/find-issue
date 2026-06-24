@@ -265,6 +265,25 @@ Report:
 
 ---
 
+## Skills (metadata pre-loaded, full content on demand)
+
+Khi cần dùng skill: `read` file `.kiro/skills/{skill-name}/SKILL.md` → follow instructions trong đó.
+
+### context-mapper — Dùng khi: Phase 5 (wire) và Phase 6 (verify wiring)
+
+**Trigger**: After you edit `.kiro/context-map.json` (Phase 4 `extraDocs`, or any preset run in
+Phase 3) or add/remove a file under `.kiro/context/` — i.e. any time the context→agent mapping changes.
+**Input**: `.kiro/context-map.json` (declares per agent: `skills[]` + `knowledgeBase[]` (+ `extraDocs[]`)).
+**Output**: regenerated `resources[]` in every `.kiro/agents/*.json`; per-agent skill + KB counts and a
+`skipped` (missing-path) list printed to stdout.
+**When in execution**: Phase 5 (run the mapper) and Phase 6 item 2 (re-run; assert 0 unexpected `skipped`).
+**How to use**: edit `context-map.json` first, NEVER hand-edit `resources[]` (the mapper overwrites it) →
+run `node .kiro/tools/context-map.mjs` → read the output. Any `skipped` entry you EXPECTED to exist is a
+defect (bad path) — fix it in `context-map.json` and re-run. Re-running is idempotent. Note: `apply-stack.mjs`
+(Phase 3) already re-runs the mapper for you, so a preset run needs no separate invocation.
+
+---
+
 ## Rules
 
 - **Get explicit sign-off before writing.** Phase 2.5 is a hard gate — never write a context

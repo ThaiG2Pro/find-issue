@@ -64,5 +64,5 @@ Must follow conventional commits format.
 
 ### 4. Pre-push
 
-- [ ] Branch is NOT `main`/`master`/`production`
+- [ ] Branch is NOT `main`/`master`/`production` — work on the pipeline's isolation branch/worktree (`{type}/{ticket}-{slug}`, see R-SDLC-003)
 - [ ] Tests pass

@@ -9,7 +9,7 @@ description: >
 # Assumption Detector
 
 ## When to Use
-- S1 Step 2 (after gathering knowledge, before writing)
+- S1 Step 4a (after gathering knowledge in Step 2, before clarification)
 - When user provides vague or incomplete requirements
 
 ## Input

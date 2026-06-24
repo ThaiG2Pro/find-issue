@@ -26,14 +26,13 @@
         "ls",
         "test",
         "node",
-        "openspec"
+        "openspec",
+        "git"
       ]
     }
   },
   "resources": [
     "skill://.kiro/skills/sdlc-orchestration-core/SKILL.md",
-    "skill://.kiro/skills/spec-auditor/SKILL.md",
-    "skill://.kiro/skills/cross-artifact-audit/SKILL.md",
     "skill://.kiro/skills/sprint-retro/SKILL.md",
     {
       "type": "knowledgeBase",

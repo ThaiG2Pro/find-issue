@@ -46,6 +46,7 @@ _DENY = [
     (re.compile(r"\b(?:node|python3?)\b[^|;&]*?(?:<<|\s-\s*$|\s-\s)"), "interpreter reading stdin/heredoc (→ arbitrary write)"),
     (re.compile(r"\b(?:cp|mv|rm|rmdir|touch|mkdir|dd|truncate|ln|chmod|chown)\b"), "filesystem-mutating command"),
     (re.compile(r"\bgit\s+(?:add|commit|apply|checkout|restore|reset|stash|rm|mv|push|merge|rebase|tag|clean)\b"), "git working-tree mutation"),
+    (re.compile(r"\bgit\s+branch\b[^|;&]*\s-(?:d|D|m|M|c|C|-delete|-move|-copy|-force)\b"), "git branch delete/rename"),
     (re.compile(r"\bpatch\b"), "`patch` (applies a diff)"),
     # Package/dependency managers mutate project files (pyproject.toml, lockfiles, node_modules)
     # — that is developer (S4) work, never the orchestrator's. Read-only subcommands (list/show/
@@ -54,9 +55,36 @@ _DENY = [
 ]
 
 
-def classify(command: str):
+# Orchestrator agents may create — and ONLY create — an isolation branch/worktree for a new
+# pipeline (sdlc.config.json git.isolation). This is the single, deliberate exception to the
+# "shell is read-only for non-developer agents" rule: a branch/worktree create touches NO tracked
+# project file (it just moves HEAD / adds a sibling working tree). `git add/commit/checkout <file>/
+# restore/reset/merge/...` stay BLOCKED for everyone — the orchestrator still never writes code.
+_ORCH_AGENTS = {"sdlc-full", "sdlc-fast"}
+_CMD_SEP = re.compile(r"(?:[;|&]|\$\(|`|<\(|>\()")   # no chaining/substitution may ride along
+_BRANCH_CREATE = [
+    re.compile(r"^git\s+checkout\s+-b\s+\S"),         # create + switch to a NEW branch
+    re.compile(r"^git\s+switch\s+-c\s+\S"),           # modern equivalent of checkout -b
+    re.compile(r"^git\s+worktree\s+add\s+\S"),        # create a new working tree (may carry -b)
+]
+
+
+def _is_orchestrator_branch_create(command: str, agent: str) -> bool:
+    """True iff `agent` is an orchestrator and `command` is exactly one branch/worktree-create
+    invocation with no shell chaining or command substitution smuggled in."""
+    if agent not in _ORCH_AGENTS:
+        return False
+    cmd = command.strip()
+    if _CMD_SEP.search(cmd):
+        return False
+    return any(rx.match(cmd) for rx in _BRANCH_CREATE)
+
+
+def classify(command: str, agent: str = "this agent"):
     """Return a human-readable reason if the command would mutate the filesystem, else None."""
     if not command or not command.strip():
+        return None
+    if _is_orchestrator_branch_create(command, agent):
         return None
     # Remove harmless /dev/null + fd-dup redirections so they don't trip the `>` rule.
     denoised = _FD_DUP.sub(" ", _DEVNULL.sub(" ", command))
@@ -75,7 +103,7 @@ def main() -> int:
     agent = sys.argv[1] if len(sys.argv) > 1 else "this agent"
     ti = data.get("tool_input") or data.get("toolInput") or {}
     command = ti.get("command") or ti.get("cmd") or data.get("command") or ""
-    reason = classify(command)
+    reason = classify(command, agent)
     if reason:
         sys.stderr.write(
             f"BLOCKED: {agent} may not write via the shell — {reason}.\n"

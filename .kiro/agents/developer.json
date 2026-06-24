@@ -1,6 +1,6 @@
 {
   "name": "developer",
-  "description": "SDLC S4 (Build) + S6 (Release Prep). Code gen theo design, unit tests ≥80%, self-review, release checklist. Trigger: /s4, /s6",
+  "description": "SDLC S4 (Build) + S6 (Release Prep). Code gen theo design, unit tests ≥80%, self-review, release checklist. Drives OpenSpec change workspaces. Trigger: /s4, /s6",
   "prompt": "file://./developer.md",
   "tools": [
     "read",

@@ -7,6 +7,8 @@
   "last_updated": "{ISO date}",
   "last_agent": "architect",
   "rigor": "{full|lite}",
+  "testcase_export": "xlsx",
+  "isolation": { "method": "branch", "branch": "feature/71194-voucher-redeem", "worktree_path": null, "base_branch": "master" },
   "gates": { "S2": "passed", "S3": "passed" },
   "convergence": {
     "S3": { "stable": 3, "rounds": 3 }

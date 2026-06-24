@@ -131,13 +131,15 @@ Khi cần dùng skill: `read` file `.kiro/skills/{skill-name}/SKILL.md` → foll
 **How to use**: Load skill → Phase 2 for RCA → Phase 3 for regression scope
 ❌ Do NOT use Phase 1 (E2E runner) unless the project's test tooling (see `context/stack.md`) configures one
 
-### qa-test-design — Dùng khi: Step B1 (Test quality review)
+### qa-test-design — Dùng khi: Step 3 (Test-case artifact) + Step B1 (Test quality review)
 
-**Trigger**: Khi review test files để phát hiện hollow/fake assertions
-**What to use**: Phase 3 only (Mutation Effectiveness Gate — Mode B: Assertion Quality Analysis)
-**Output**: Hollow TC list ([H1]-[H5] patterns), estimated mutation score
-**How to use**: Load skill → run Mode B static analysis against each test file → flag hollow TCs as [AI-DETECTABLE] bugs
-❌ Do NOT use Phase 1 (Test Case Design) or Phase 2 (Playwright scripts)
+**Trigger**: (a) Step 3 — xuất test-case deliverable cho QA manager; (b) Step B1 — review test files phát hiện hollow/fake assertions
+**What to use**:
+- **Phase 1 Bước 3–5** (format + export + coverage) — CHỈ khi `_state.json.testcase_export` ∈ {`xlsx`,`md`}. Dùng lại scenarios đã thiết kế ở Step 3 + gap map của `qa-analysis` làm bộ test case (KHÔNG phân tích lại từ đầu).
+- **Phase 3 Mode B** (Mutation Effectiveness Gate — Assertion Quality Analysis) ở Step B1.
+**Output**: `qa/testcases.{xlsx|md|csv}` + `qa/coverage_summary.md` (Step 3); Hollow TC list [H1]-[H5] (Step B1)
+**How to use**: Load skill → đọc `testcase_export` từ `_state.json` → nếu ≠ none chạy Bước 4 (generator python đã ship) xuất artifact; rồi Phase 3 Mode B để review.
+❌ Do NOT use Phase 2 (Playwright scripts) unless `context/stack.md` configures E2E tooling.
 
 ### security-audit — Dùng khi: Step 4B (Code Review) — MANDATORY cho mọi feature
 
@@ -285,6 +287,17 @@ QA generates test scenarios as a CHECKLIST, not as code. These are verification 
 | AC-XXX-005 | Duplicate name | POST same name → conflict | High |
 | AC-XXX-010 | SQL injection in search | search=' OR 1=1 → rejected (not 5xx) | Critical |
 ```
+
+**Then: Export the test-case artifact for the QA manager** (per-pipeline choice)
+- Read `{CHANGE_DIR}/_state.json` → `testcase_export` (orchestrator đã chọn ở kickoff: `xlsx`/`md`/`none`).
+- `none` → bỏ qua bước này (artifact cố ý không sinh).
+- `xlsx`/`md` → load `qa-test-design` (Bước 3–5): dùng các scenarios bảng trên + gap map của `qa-analysis` làm bộ test case → ghi `{CHANGE_DIR}/qa/testcases.json` → sinh file:
+  ```bash
+  python3 .kiro/skills/qa-test-design/gen_testcases_xlsx.py \
+    {CHANGE_DIR}/qa/testcases.json {CHANGE_DIR}/qa/testcases.xlsx   # md → ghi bảng markdown thay vì chạy script
+  ```
+  Thiếu `openpyxl` → generator tự fallback `.csv` (vẫn hợp lệ). Cũng ghi `{CHANGE_DIR}/qa/coverage_summary.md`.
+- ⚠️ Khi `testcase_export` ∈ {xlsx,md}, file này là **prerequisite cứng của gate S5** — thiếu/0 row → orchestrator CHẶN GO/NO-GO. Sinh trước khi present quyết định.
 
 ### Step 4: Verification Execution
 

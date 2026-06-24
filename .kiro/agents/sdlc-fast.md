@@ -47,3 +47,4 @@ Load State), check `_state.json.type`:
 `approve`/`ok`/`LGTM` · `nogo <reason>` · `status` · `continue` · `dispute bug #N — <claim>`.
 
 → For setup, routing, state, gates, CPP, and disputes: **follow `sdlc-orchestration-core`.**
+Fast-track skips S1–S3, so the S2/S3 audit skills (`spec-auditor`, `cross-artifact-audit`) do NOT run. Skills that DO apply: `sdlc-orchestration-core` (every phase) and `sprint-retro` (at S6, after `openspec archive`).

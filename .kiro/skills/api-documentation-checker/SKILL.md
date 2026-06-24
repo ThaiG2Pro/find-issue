@@ -12,7 +12,7 @@ OpenAPI compliance checker cho NestJS, align với `.kiro/context/conventions.md
 
 ## When to Activate
 
-- Trước khi tạo PR từ S4 Build (triggered bởi hook `api-doc-reminder`)
+- Trước khi tạo PR từ S4 Build (khi task type = Controller / endpoint)
 - Khi review controller file
 - S5 QA — verify API contract documentation đầy đủ
 

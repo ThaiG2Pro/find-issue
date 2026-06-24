@@ -7,7 +7,12 @@ description: >
 
 # API Design — My Project
 
-Patterns cho NestJS REST API, align với `.kiro/context/conventions.md`.
+REST API patterns, align với `.kiro/context/conventions.md`.
+
+> **Source of truth = `context/conventions.md`.** Nếu project đó định nghĩa response shape /
+> status policy / URL scheme khác → conventions.md THẮNG. Phần dưới là reference defaults +
+> framework examples (NestJS). Stack khác (Laravel/Next.js) → áp dụng cùng nguyên tắc
+> (resource naming, status codes, error envelope, pagination) bằng idiom của framework đó.
 
 ## When to Activate
 
@@ -32,7 +37,7 @@ GET    /api/v1/campaigns/:id/variants
 POST   /api/v1/orders/:id/cancel    # Action verb (sparingly)
 ```
 
-## Response Format (P1 Standard)
+## Response Format (reference default — defer to conventions.md)
 
 ### Success
 ```json

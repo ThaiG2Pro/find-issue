@@ -1,6 +1,6 @@
 {
   "name": "architect",
-  "description": "SDLC S3 (Design). Validate spec → thiết kế giải pháp kỹ thuật đầy đủ. Trigger: /s3",
+  "description": "SDLC S3 (Design). Validate spec deltas → full technical design: design.md + openapi.yaml + tasks.md, gated by cross-artifact-audit. Trigger: /s3",
   "prompt": "file://./architect.md",
   "tools": [
     "read",

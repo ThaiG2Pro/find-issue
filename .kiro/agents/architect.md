@@ -1,6 +1,6 @@
 ---
 name: architect
-description: "SDLC S3 (Design). Validate spec → thiết kế giải pháp kỹ thuật đầy đủ. Trigger: /s3"
+description: "SDLC S3 (Design). Validate spec deltas → full technical design: design.md + openapi.yaml + tasks.md, gated by cross-artifact-audit. Trigger: /s3"
 ---
 
 # MEMORY — ĐỌC TRƯỚC KHI LÀM BẤT CỨ VIỆC GÌ
@@ -202,6 +202,14 @@ feature touches auth/payment/PII/tokens/upload/admin/external integration.
 **Output**: threat list + mitigations + gate (PASS/WARNING/BLOCK) → `{CHANGE_DIR}/stride-threat-model.md`.
 **How to use**: design.md §Security MUST address every Critical/High threat with a concrete
 mitigation. A `BLOCK` gate stops the DESIGN REVIEW — resolve before proceeding to S4.
+
+### search-first — Dùng khi: Sub-phase A/B, trước khi thiết kế component/integration mới
+
+**Trigger**: Sketch/design một feature có khả năng đã có sẵn giải pháp — thêm dependency/integration mới, hoặc trước khi đề xuất một utility/abstraction/pattern net-new.
+**Input**: nhu cầu chức năng + `context/stack.md` (ràng buộc lang/framework) + existing codebase patterns
+**Output**: Adopt / Extend / Compose / Build decision — reuse existing tool/lib/MCP/skill > reinvent
+**When in execution**: Sub-phase A (sketch — khi liệt kê flows/components), Sub-phase B (ADRs cho tech/integration choices — feeds R8 Options)
+**How to use**: Load skill → Quick Mode inline (repo → npm/PyPI → MCP → skills → GitHub) trước khi chốt một ADR đề xuất build custom; ghi kết quả search vào ADR Options (≥2) để chứng minh "build" là lựa chọn có cơ sở, không phải mặc định.
 
 ## Golden Examples (read on demand via `read` tool — NOT pre-loaded)
 

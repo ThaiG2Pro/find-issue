@@ -65,30 +65,32 @@ Requirement: AC-{ticket}-{NNN} (hoặc R-{NNN} cho risk items)
 Automation: Full Auto / Partial / Manual
 ```
 
-### Bước 4: Xuất test cases (format theo config)
+### Bước 4: Xuất test cases (format theo `_state.json.testcase_export`)
 
-Đọc `.kiro/sdlc.config.json` → `qa.testcase_export` và `_state.json` → `rigor`:
+Format được **orchestrator chọn PER PIPELINE ở kickoff** và lưu sẵn — KHÔNG tự suy từ config/rigor ở
+đây. Đọc `{CHANGE_DIR}/_state.json` → `testcase_export`:
 
-| `qa.testcase_export` | rigor | Output |
-|----------------------|-------|--------|
-| `auto` (default)     | `full` | **`.xlsx`** — `openspec/changes/<change>/qa/testcases.xlsx` (báo cáo QA manager) |
-| `auto`               | `lite` | markdown table — `openspec/changes/<change>/qa/testcases.md` (bugfix); hotfix → bỏ qua |
-| `xlsx`               | bất kỳ | luôn `.xlsx` |
-| `md`                 | bất kỳ | luôn markdown |
-| `none`               | bất kỳ | bỏ qua artifact test-case |
+| `testcase_export` | Output |
+|-------------------|--------|
+| `xlsx` | **`.xlsx`** — `openspec/changes/<change>/qa/testcases.xlsx` (báo cáo QA manager) |
+| `md`   | markdown table — `openspec/changes/<change>/qa/testcases.md` |
+| `none` | bỏ qua artifact test-case (không sinh file) |
 
-Runtime `--xlsx` / `--no-xlsx` (nếu orchestrator truyền xuống) override bảng trên.
+> Nếu `_state.json` thiếu key `testcase_export` (state cũ): fallback `auto` → `full`→xlsx, `lite`→md,
+> hotfix→none. Vẫn ưu tiên giá trị đã persist nếu có.
 
-**Sinh `.xlsx`** (chọn 1, theo stack sẵn có — qa agent có cả `npx` và `python3`):
+**Sinh `.xlsx`** — viết test cases ra `qa/testcases.json` (mảng object: `test_id, technique,
+priority, objective, steps, expected, requirement, automation, status`) rồi chạy generator đã ship
+cùng skill (python3, có sẵn trong shell của qa — KHÔNG cần Node):
 ```bash
-# Node + exceljs
-npx tsx scripts/generate-test-excel.ts --input qa/testcases.json --output openspec/changes/<change>/qa/testcases.xlsx
-# hoặc Python + openpyxl
-python3 scripts/generate_test_excel.py qa/testcases.json openspec/changes/<change>/qa/testcases.xlsx
+python3 .kiro/skills/qa-test-design/gen_testcases_xlsx.py \
+  openspec/changes/<change>/qa/testcases.json \
+  openspec/changes/<change>/qa/testcases.xlsx
 ```
 Cột chuẩn: `Test ID | Technique | Priority | Objective | Steps | Expected | Requirement | Automation | Status`.
-Tô màu Status (Pass=green, Fail=red, N/A=grey) để QA manager đọc nhanh. File `.xlsx` ghi vào
-`openspec/**` (nằm trong write.allowedPaths của qa).
+Status được tô màu (Pass=green, Fail=red, N/A=grey) khi `openpyxl` có sẵn. **Thiếu `openpyxl`** →
+generator tự fallback ghi `testcases.csv` (mở được bằng Excel) và in cảnh báo — KHÔNG fail gate.
+File ghi vào `openspec/**` (trong write.allowedPaths của qa).
 
 ### Bước 5: Coverage summary
 

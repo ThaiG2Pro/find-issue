@@ -26,7 +26,8 @@
         "ls",
         "test",
         "node",
-        "openspec"
+        "openspec",
+        "git"
       ]
     }
   },

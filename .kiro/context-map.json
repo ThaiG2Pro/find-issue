@@ -11,7 +11,7 @@
       "knowledgeBase": ["context/conventions.md", "pipelines.json"]
     },
     "sdlc-fast": {
-      "skills": ["sdlc-orchestration-core", "spec-auditor", "cross-artifact-audit", "sprint-retro"],
+      "skills": ["sdlc-orchestration-core", "sprint-retro"],
       "knowledgeBase": ["context/conventions.md", "pipelines.json"]
     },
     "analyst": {

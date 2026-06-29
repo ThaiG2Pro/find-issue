@@ -1,9 +1,0 @@
-{
-  "stack": "nestjs",
-  "contextFiles": ["stack.md", "conventions.md"],
-  "skills": {
-    "architect": ["nestjs-api-design", "nestjs-postgres-patterns"],
-    "developer": ["nestjs-backend-patterns", "nestjs-database-migrations", "nestjs-tdd-workflow", "nestjs-test-generator", "nestjs-postgres-patterns"],
-    "qa": ["nestjs-test-generator", "nestjs-api-documentation-checker"]
-  }
-}

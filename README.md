@@ -92,6 +92,13 @@ api_key_env = "LLM_API_KEY"
 # Where to persist the state file (tracks seen issues for idempotency).
 # Default: ./.osspulse/state.json
 state_path = "./.osspulse/state.json"
+
+[output]
+# Where to write the rendered digest.
+# destination: "file" (default) writes to output_path; "stdout" pipes to standard output.
+destination = "file"
+# Path for the digest file (used only when destination = "file"). Default: ./digest.md
+output_path = "./digest.md"
 ```
 
 ### `.env` (secrets — never commit)
@@ -111,8 +118,11 @@ See `.env.example` for a full annotated template.
 ## Usage
 
 ```bash
-# Run a digest (collect issues → summarize → print Markdown to stdout)
+# Run a digest (collect issues → summarize → write Markdown digest to configured destination)
 uv run osspulse run
+
+# Pipe to stdout instead (set destination = "stdout" in config.toml, or redirect)
+uv run osspulse run  # with destination="stdout" → pipe freely: osspulse run | less
 
 # Show help
 uv run osspulse --help

@@ -106,7 +106,19 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
     state_section = data.get("state", {})
     state_path: str = state_section.get("state_path", "./.osspulse/state.json")
 
-    # Steps 9-10: unknown keys ignored, return Config
+    # Step 9: optional [output] section — fail-fast validation (ADR-004, AC-6-010..013)
+    output_section = data.get("output", {})
+    output_destination: str = output_section.get("destination", "file")
+    if output_destination not in ("file", "stdout"):
+        raise ConfigError(
+            f"output.destination must be 'file' or 'stdout', got {output_destination!r}"
+        )
+    output_path: str = output_section.get("output_path", "./digest.md")
+    if output_destination == "file" and (
+        not isinstance(output_path, str) or not output_path.strip()
+    ):
+        raise ConfigError("output.output_path must be a non-empty string when destination='file'")
+
     return Config(
         watched_repos=watched_repos,
         lookback_days=lookback_days,
@@ -114,4 +126,6 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
         llm_provider=llm_provider,
         llm_api_key=llm_api_key,
         state_path=state_path,
+        output_destination=output_destination,
+        output_path=output_path,
     )

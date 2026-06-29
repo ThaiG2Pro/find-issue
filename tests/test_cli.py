@@ -37,12 +37,12 @@ def test_run_help():
 
 
 def test_run_valid_config_exits_zero(tmp_path, monkeypatch):
-    """Valid config → exit 0 + stub message (AC-1-030)."""
+    """Valid config → exit 0 (AC-1-030). Stub output now delivered to default digest.md."""
     p = write_valid_config(tmp_path)
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    monkeypatch.chdir(tmp_path)  # FileDelivery writes ./digest.md relative to CWD
     result = runner.invoke(app, ["run", "--config", str(p)])
     assert result.exit_code == 0
-    assert "pipeline not yet implemented" in result.stdout
 
 
 # ---------------------------------------------------------------------------

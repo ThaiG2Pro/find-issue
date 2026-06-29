@@ -1,0 +1,101 @@
+{
+  "ticket_id": "6",
+  "feature_slug": "delivery",
+  "change_name": "delivery-6",
+  "type": "feature",
+  "rigor": "full",
+  "testcase_export": "md",
+  "phases": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "isolation": {
+    "method": "branch",
+    "branch": "feature/6-delivery",
+    "worktree_path": null,
+    "base_branch": "feature/5-digest-renderer"
+  },
+  "current_phase": "S6",
+  "gates": {
+    "S2": "passed",
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed"
+  },
+  "convergence": {
+    "S2": {
+      "stable": 3,
+      "rounds": 3
+    }
+  },
+  "last_updated": "2026-06-29",
+  "last_agent": "orchestrator",
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "date": "2026-06-29",
+      "summary": "Requirements intake: 3 user stories (file delivery, stdout delivery, clear-error-on-unwritable), 14 edge cases, scope closed (V1=file+stdout, email/webhook=V2 out of scope). No intake docs folder / no Figma (CLI tool)."
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "date": "2026-06-29",
+      "summary": "Functional spec: 20 ACs (16 CONFIRMED, 4 ASSUMED, 0 MISSING/UNCLEAR), 12 BRs, 3 INTs across 6 requirements. Early Risk Flags RF-1..5 (no Critical). Key decision D-1: change Delivery port send(Digest) -> deliver(str)."
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "date": "2026-06-29",
+      "summary": "Technical design: design.md (sketch=no critical gaps; 6 ADRs) + tasks.md (12 task groups, 2 checkpoints, all subtasks have File+_Requirements_). ADR-001 deliver(str) port (D-1); ADR-002 atomic write reuses state-store-3 (temp-in-target-parent, NO mkdir); ADR-003 broken-pipe handled at CLI top level (devnull redirect); ADR-004 [output] fail-fast in config.py; ADR-005 no openapi.yaml (CLI-only); ADR-006 DeliveryError mirrors StateError. No openapi.yaml. openspec validate --strict PASS. No S3->S2 return needed."
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-06-29",
+      "summary": "Build: 5 new files (delivery/errors.py, file_delivery.py, stdout_delivery.py, __init__.py, 4 test files), 4 modified (ports.py, models.py, config.py, cli.py). 245/245 tests pass, coverage 98.14%. 2 minor deviations (Digest import removed, test_cli stub assertion updated). dev-test-report.md created."
+    },
+    {
+      "phase": "S5",
+      "agent": "orchestrator",
+      "date": "2026-06-29",
+      "summary": "QA: 20/20 ACs verified, 245/245 tests, 98.14% coverage, 0 bugs, 0 security findings. GO decision. One accepted gap: BrokenPipeError/DeliveryError CLI handlers not unit-tested (integration boundary)."
+    },
+    {
+      "phase": "S6",
+      "agent": "orchestrator",
+      "date": "2026-06-29",
+      "summary": "Release prep: README updated with [output] config section, release.md created, openspec archive completed. Living spec openspec/specs/delivery/spec.md created. Branch feature/6-delivery ready to merge."
+    }
+  ],
+  "active_concerns": [
+    "D-1 port change: ports.py Delivery.send(digest: Digest) becomes deliver(content: str) — MODIFIED capability; dev updates Protocol (ADR-001). No existing call site references Delivery.send.",
+    "Atomicity: temp file MUST be in Path(output_path).parent (same filesystem) or os.replace is not atomic (RF-1, ADR-002).",
+    "No mkdir: S6 diverges from state-store-3 — must NOT auto-create the parent dir (AC-6-014).",
+    "Encoding: force UTF-8 explicitly on the os.fdopen and on stdout (RF-3, ADR-002/003).",
+    "Broken-pipe locus = CLI top level + os.dup2 stdout->devnull, NOT the adapter (ADR-003, AC-6-009) — confirm at DESIGN REVIEW.",
+    "Config: invalid [output] must fail at load_config (ADR-004), not at delivery time (BR-6-008).",
+    "Import isolation: delivery/ imports no render/models/github/summarizer/cache — STATIC test required (AC-6-002/003)."
+  ],
+  "terminology": {
+    "Delivery (S6)": "Terminal sink consuming the rendered Markdown string from S5; writes to file/stdout (V1).",
+    "deliver(content: str)": "V1 Delivery port method replacing the stale send(digest: Digest) stub (D-1, AC-6-001).",
+    "[output] config section": "destination (file|stdout, default file) + output_path (default ./digest.md, file mode only); validated fail-fast at load_config (ADR-004).",
+    "Atomic delivery": "tempfile.mkstemp(dir=target.parent) -> fdopen(utf-8) write+flush+fsync -> os.replace -> finally unlink; NO mkdir (ADR-002).",
+    "Deterministic overwrite": "Re-delivering identical content overwrites byte-identically via os.replace; never appends (AC-6-018).",
+    "FileDelivery": "Concrete file adapter (src/osspulse/delivery/file_delivery.py) implementing Delivery; atomic UTF-8 write (ADR-002).",
+    "StdoutDelivery": "Concrete stdout adapter (src/osspulse/delivery/stdout_delivery.py); content + 1 newline to sys.stdout; does not catch BrokenPipeError (ADR-003).",
+    "DeliveryError": "Per-module exception (src/osspulse/delivery/errors.py) mirroring StateError; file-write failures -> Error: <msg> exit 1 (ADR-006).",
+    "Broken-pipe locus": "BrokenPipeError caught at the CLI top level (os.dup2 stdout->devnull, clean exit), never in the adapter (ADR-003, AC-6-009)."
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor first run (cat ./digest.md)",
+    "blocker": null
+  }
+}

@@ -13,3 +13,8 @@
 | Rate limit | GitHub API request cap (60/hr unauthenticated, 5000/hr with token) | Token raises the cap; pipeline backs off near the limit |
 | Item | A single unit of content: an issue (V1), discussion, or release (V2) | The thing that gets summarized |
 | Repo-welcomeness | Experimental metric: how welcoming a repo is to new contributors | V3 only (PR response time, newcomer merge rate) |
+| Digest Renderer | S5 stage: pure transform turning a list of `SummarizedItem` into the Markdown digest string; no I/O, no upstream imports | digest-renderer-5; concrete adapter in `src/osspulse/render/` |
+| Repo section | A per-repo `## {repo} — …` block in the digest; emitted only for repos with ≥1 item; repos ordered alphabetically (case-insensitive) | Digest structure (S5) |
+| Item-type group | A `### {Label} ({count})` block within a repo section; fixed order Issues → Discussions → Releases → Khác; emitted only if non-empty | Digest structure (S5) |
+| Khác bucket | Trailing group for items whose `item_type` is not issue/discussion/release — ensures no item is ever dropped from the digest | "Khác" = "Other" (vi); Digest structure (S5) |
+| No-new-items doc | The non-empty Markdown returned when a run has no new items: a title + a "no new items in the last N days" line; never an empty/ambiguous string | Digest structure (S5) |

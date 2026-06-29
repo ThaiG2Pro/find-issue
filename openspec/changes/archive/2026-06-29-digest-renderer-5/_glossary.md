@@ -22,3 +22,5 @@ Shared, append-only domain/technical glossary. Every phase adds rows. Keep **Pha
 | MarkdownDigestRenderer | Concrete adapter class (`src/osspulse/render/renderer.py`) implementing the `DigestRenderer` Protocol structurally; `render()` delegates to the pure free `render()` function | S3 |
 | `_build_item_line` | Module-private composable function building one item line with independent omit-branches for empty title/url/summary; never raises | S3 |
 | dict-of-dict grouping | Determinism strategy: `dict[repo] -> dict[group_key] -> list[item]` using Python insertion order; repos sorted by `str.lower`, items kept in input order, NO `set` used | S3 |
+| `_item_lines()` helper | Test helper (`tests/test_render_defensive.py`, `test_render_determinism.py`) filtering `result.splitlines()` to only lines starting with `- #`; isolates item-line assertions from the em-dash in repo headers | S4 |
+| em-dash separator | U+2014 `—` used in `_build_item_line` before the summary segment (`— {summary}`) and in the repo header (`## {repo} — N ngày qua`); tests assert on item lines only when checking for absence (AC-5-017) | S4 |

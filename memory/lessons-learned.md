@@ -4,6 +4,51 @@
 
 ---
 
+## digest-renderer-5 · 2026-06-29
+
+**Type:** feature (full S1→S6) · S5 Digest Renderer — pure `SummarizedItem[] → Markdown` transform (`osspulse.render`)
+**Health Score:** 92/100 · 0 gate violations · **0 loop-backs** · QA GO on first pass
+
+### Gate Compliance: 5/5 passed (0 violations)
+| Gate | Output | Result |
+|------|--------|--------|
+| S1→S2 | proposal + 20 ACs, 15 edge cases, 3 clarifications resolved | ✅ |
+| 🔒 S2 SPEC LOCK | spec-auditor PASS + openspec validate + no TBD; convergence stable 3/3 (recorded retroactively — see friction) | ✅ |
+| 🔍 S3 DESIGN REVIEW | cross-artifact-audit 0 CRITICAL (1 MEDIUM fixed), 5 ADRs, 13 tasks, 20/20 ACs covered; convergence 3/3 | ✅ |
+| S4→S5 | 220/220 tests, **100%** coverage on `osspulse.render` (49/49 stmts), ruff clean, 0 deviations | ✅ |
+| S5→S6 | QA GO, 0 bugs all severities, 20/20 ACs independently re-verified | ✅ |
+
+### AI Performance
+| Metric | Target | Actual |
+|--------|--------|--------|
+| AI-detectable bugs caught by AI (QA) | ≥90% | n/a — 0 bugs surfaced; QA independently re-verified determinism / import-isolation / RF-2 |
+| Logic bugs missed | 0 | 0 (QA adversarial seeds + 10k stress found none) |
+| Spec adherence (unauthorized deviations) | 100% | 100% — all 5 ADRs followed; ADR-005 (no openapi) is documented, not unauthorized |
+| Coverage on new code | ≥80% | **100%** ✅ |
+| Guards fired (pipeline-guard/cpp-guard) | ✅ | ✅ — guard CAUGHT 2 inherited `_state.json` defects (below) |
+
+### What worked
+- **Determinism (RF-1) nailed end-to-end** — dict-of-dict grouping, zero `set` usage, byte-equal double-render verified under adversarial seeds + a 10k-item stress run. Pure-transform design made the module mockless and 100%-coverable.
+- **Expensive upstream gates held again** — no S5→S3 (20×) or S5→S2 (25×) loop-backs; spec locked once and held through build + QA. Full-rigor convergence (stable_rounds=3) on S2+S3 paid off for the 3rd consecutive change.
+- **QA re-verified the highest-risk items independently** (determinism, import-isolation, RF-2) rather than trusting the dev report — counts matched, 220/220.
+- Only rework was two **test-assertion technique** fixes inside S4 (em-dash false-positive scoping; `#id` token extraction) — caught and fixed *within* S4, never a gate loop-back.
+
+### Process friction — `_state.json` integrity (THIRD consecutive recurrence)
+- `pipeline-guard` again caught inherited state defects from a prior turn: non-canonical `gates` format + a missing `rigor=full` convergence record. The orchestrator repaired state (retroactive convergence verification is legitimate against a frozen/locked spec) and the gate then passed. **This is the same class as state-store-3 #1/#2 and summarizer-llm-4 #1 — `_state.json` format/convergence drift has now bitten THREE changes in a row.** The guard is the real backstop; the writer is the root cause.
+- **EC-004 (10k-item stress) had no dedicated test at S4** — QA had to add a spot-check to cover the largest-N path before it could sign GO. Scale cases for aggregating transforms are slipping past the dev self-test.
+
+### Action items (carry forward)
+1. **Normalize-on-load / `doctor` fixer for `_state.json`** — auto-upgrade `gates` to the canonical `"passed"` string form and back-fill `convergence` for already-approved convergence gates at `rigor=full`, at session start, instead of surfacing as an exit-1 at the next gate. **This is the promotion of state-store-3 #1 (schema-validated writer) — three changes now justify building it.** *[Tooling / Orchestration core]*
+2. **Add a "scale/stress spot-check for aggregating/looping transforms" line to the developer S4 self-test checklist** — so EC-style large-N cases (EC-004) are covered before QA has to backfill them. *[Developer steering]*
+3. **Follow-on change: wire `MarkdownDigestRenderer` into the CLI pipeline** (S6 Delivery / S7) — the renderer ships production-ready but UNWIRED; `osspulse run` does not yet surface it. (Same dormant-feature pattern as summarizer-llm-4's `summarize_items`.) *[Analyst → next pipeline]*
+
+### Fragile areas to watch
+- **Two dormant, production-ready modules now unwired**: `summarize_items` (S4) and `MarkdownDigestRenderer` (S5). Both are tested + complete but not called from `pipeline.py`. The next high-value change is the CLI wiring that activates them — track so they don't rot.
+- **`_state.json` remains the highest-risk integrity surface** — many writers, no schema guard; a single format drift halts the pipeline at the next gate (action item #1).
+- **ADR-005 (no openapi)** is a deliberate deviation for a no-HTTP CLI — re-evaluate only if a future change adds an API surface.
+
+---
+
 ## summarizer-llm-4 · 2026-06-25
 
 **Type:** feature (full S1→S6) · S4 Summarizer (LLM) — LiteLLM + Redis cache-aside

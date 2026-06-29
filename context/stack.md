@@ -10,6 +10,7 @@
   - **httpx** — GitHub HTTP client (async-capable, modern)
   - **LiteLLM** — unified LLM client across providers (OpenAI/Anthropic/Ollama/…)
   - **Typer** — CLI framework
+  - **redis** (`redis>=5.0`) — Redis client for the summary cache
   - TOML config parsing via stdlib `tomllib`; `.env` loading via `python-dotenv`
 
 ## Data
@@ -19,11 +20,14 @@
 
 ## Testing
 - **Test framework**: **pytest** (with mocks for the GitHub and LLM clients)
+- **Coverage tooling**: **pytest-cov** (`tool.coverage`); `fail_under = 80`. `ports.py` and
+  `pipeline.py` are `omit`-ted from coverage in V1 (pure-interface / wiring not yet exercised).
 - **Coverage gate**: ≥ 80% lines
 - **Integration test policy**: GitHub and LLM clients are mocked — tests MUST NOT hit real APIs. Redis may use a fake/in-memory client or a local test instance.
 
 ## Build / Tooling
 - **Package manager**: **uv** (dependency resolution, lockfile, virtualenv)
-- **Lint / format**: **ruff** (lint + format)
+- **Build backend**: **hatchling** (`build-system` in `pyproject.toml`); wheel packages `src/osspulse`.
+- **Lint / format**: **ruff** (lint + format); `line-length = 100`, lint rules `E, F, I, UP`, target `py313`.
 - **CI**: **GitHub Actions** (lint + tests; cron-based scheduled run is a V2 option)
-- **Packaging**: `pyproject.toml`, installable via `pipx`/`uv`; small Docker image optional in V2.
+- **Packaging**: `pyproject.toml`, installable via `pipx`/`uv`; entrypoint `osspulse = "osspulse.cli:app"`; small Docker image optional in V2.

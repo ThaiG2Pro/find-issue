@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from osspulse.models import Digest, RawItem
+from osspulse.models import Digest, RawItem, SummarizedItem
 
 
 class GitHubClient(Protocol):
@@ -23,3 +23,7 @@ class SummaryCache(Protocol):
 
 class Delivery(Protocol):
     def send(self, digest: Digest) -> None: ...
+
+
+class DigestRenderer(Protocol):
+    def render(self, items: list[SummarizedItem], *, lookback_days: int) -> str: ...

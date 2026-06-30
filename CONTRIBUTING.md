@@ -5,7 +5,7 @@ Thanks for your interest! Here's how to get started.
 ## Setup
 
 ```bash
-git clone https://github.com/ThaiG2Pro/find-issuse.git
+git clone https://github.com/ThaiG2Pro/find-issue.git
 cd find-issuse
 mise install
 uv sync

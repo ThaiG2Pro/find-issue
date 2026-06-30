@@ -1,5 +1,7 @@
 # OSS Pulse
 
+![CI](https://github.com/ThaiG2Pro/find-issuse/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+
 A CLI tool that watches a self-chosen list of GitHub repositories and produces an
 LLM-summarized digest of new issues, so you can understand a repo deeply before
 contributing — without manually scanning Issues tabs.
@@ -45,8 +47,8 @@ brew install mise              # or: curl https://mise.run | sh
 pip install uv                 # or follow https://github.com/astral-sh/uv#installation
 
 # 2. Clone and enter the repo
-git clone https://github.com/your-org/osspulse.git
-cd osspulse
+git clone https://github.com/ThaiG2Pro/find-issuse.git
+cd find-issuse
 
 # 3. Install the correct Python version
 mise install

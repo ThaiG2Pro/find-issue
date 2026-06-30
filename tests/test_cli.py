@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -37,11 +38,15 @@ def test_run_help():
 
 
 def test_run_valid_config_exits_zero(tmp_path, monkeypatch):
-    """Valid config → exit 0 (AC-1-030). Stub output now delivered to default digest.md."""
+    """Valid config exits 0 (AC-1-030).
+
+    Pipeline mocked — real pipeline tested in test_pipeline.py.
+    """
     p = write_valid_config(tmp_path)
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
-    monkeypatch.chdir(tmp_path)  # FileDelivery writes ./digest.md relative to CWD
-    result = runner.invoke(app, ["run", "--config", str(p)])
+    monkeypatch.chdir(tmp_path)
+    with patch("osspulse.cli.run_pipeline", return_value=None):
+        result = runner.invoke(app, ["run", "--config", str(p)])
     assert result.exit_code == 0
 
 

@@ -124,9 +124,40 @@ uv run osspulse run
 # Pipe to stdout instead (set destination = "stdout" in config.toml, or redirect)
 uv run osspulse run  # with destination="stdout" → pipe freely: osspulse run | less
 
+# Run without an LLM provider (no-LLM mode — see below)
+uv run osspulse run  # omit [llm] section from config.toml
+
 # Show help
 uv run osspulse --help
 ```
+
+### No-LLM mode (zero LLM cost)
+
+If you omit the `[llm]` section from `config.toml` (or do not set `provider`), OSS Pulse
+will still collect issues and produce a full Markdown digest — each item's summary will
+read `(no summary — LLM disabled)` instead of an AI-generated summary. This is useful
+for a first run to verify connectivity, or for operators who only need the raw issue list.
+
+### Default LLM model (ADR-002)
+
+The model string is read from `config.toml [llm] model`. If `model` is omitted, the
+pipeline infers a sensible default per provider:
+
+| Provider | Default model |
+|----------|--------------|
+| `openai` | `openai/gpt-4o-mini` |
+| `ollama` | `ollama/llama3` |
+| `anthropic` | `anthropic/claude-3-haiku-20240307` |
+| `groq` | `groq/llama3-8b-8192` |
+| other | `<provider>/<provider>` |
+
+It is recommended to set `model` explicitly in `config.toml` for predictable costs.
+
+### Redis cache (optional)
+
+Set `REDIS_URL` in `.env` (e.g. `redis://localhost:6379`) to enable LLM summary caching.
+If `REDIS_URL` is absent or Redis is unreachable, the run continues without caching —
+the LLM is called for each new item on every run.
 
 ---
 

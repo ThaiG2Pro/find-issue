@@ -47,17 +47,13 @@ def test_invalid_destination_raises_config_error(tmp_path):
 def test_empty_output_path_with_file_raises_config_error(tmp_path):
     """Empty output_path with destination='file' raises ConfigError (AC-6-013)."""
     with pytest.raises(ConfigError, match="output.output_path"):
-        load_config(
-            _write(tmp_path, '[output]\ndestination = "file"\noutput_path = ""\n'), ENV
-        )
+        load_config(_write(tmp_path, '[output]\ndestination = "file"\noutput_path = ""\n'), ENV)
 
 
 def test_whitespace_output_path_with_file_raises_config_error(tmp_path):
     """Whitespace-only output_path raises ConfigError (AC-6-013)."""
     with pytest.raises(ConfigError, match="output.output_path"):
-        load_config(
-            _write(tmp_path, '[output]\ndestination = "file"\noutput_path = "   "\n'), ENV
-        )
+        load_config(_write(tmp_path, '[output]\ndestination = "file"\noutput_path = "   "\n'), ENV)
 
 
 def test_stdout_destination_ignores_output_path(tmp_path):

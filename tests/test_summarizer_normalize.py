@@ -19,8 +19,12 @@ from osspulse.summarizer.normalize import normalize_summary, prepare_input
 
 def _item(**kwargs) -> RawItem:
     defaults = dict(
-        repo="owner/repo", item_type="issue", item_id="1",
-        title="Fix bug", body="Details here.", url="https://x",
+        repo="owner/repo",
+        item_type="issue",
+        item_id="1",
+        title="Fix bug",
+        body="Details here.",
+        url="https://x",
         created_at="2024-01-01T00:00:00Z",
     )
     return RawItem(**{**defaults, **kwargs})
@@ -122,6 +126,7 @@ def test_over_long_output_normalized_to_two_sentences_AC_4_015():
     result = normalize_summary(text)
     # At most 2 terminal punctuation marks
     import re
+
     sentences = [s for s in re.split(r"(?<=[.!?])\s+", result) if s]
     assert len(sentences) <= 2
 

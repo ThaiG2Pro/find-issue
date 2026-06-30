@@ -5,7 +5,10 @@ from pathlib import Path
 import typer
 
 from osspulse.config import ConfigError, load_config
-from osspulse.delivery import DeliveryError, FileDelivery, StdoutDelivery
+from osspulse.delivery.errors import DeliveryError
+from osspulse.github.errors import AuthError
+from osspulse.pipeline import run_pipeline
+from osspulse.state.errors import StateError
 
 app = typer.Typer(help="OSS Pulse — monitor open source projects.")
 
@@ -22,21 +25,26 @@ def run(
     """Load config and run the pipeline."""
     try:
         cfg = load_config(config, dict(os.environ))
-        # INT-6-003: select adapter from config
-        if cfg.output_destination == "stdout":
-            delivery = StdoutDelivery()
-        else:
-            delivery = FileDelivery(cfg.output_path)
-        # TODO: replace stub with real pipeline output (render result)
-        delivery.deliver("osspulse: pipeline not yet implemented")
+        run_pipeline(cfg)
     except BrokenPipeError:
-        # ADR-003, AC-6-009: redirect stdout→devnull so interpreter's final flush doesn't re-raise
+        # ADR-003 (delivery-6), AC-7-013: redirect stdout→devnull so interpreter's
+        # final flush doesn't re-raise after deliver() returns.
         devnull = os.open(os.devnull, os.O_WRONLY)
         os.dup2(devnull, sys.stdout.fileno())
         raise typer.Exit(code=0)
+    except AuthError as e:
+        # AC-7-005, BR-7-002: fatal — shared token invalid; message from our error class only
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+    except StateError as e:
+        # AC-7-012, BR-7-004: state write failure is fatal
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
     except DeliveryError as e:
+        # AC-7-020, BR-7-004
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)
     except ConfigError as e:
+        # AC-7-012, BR-7-004
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)

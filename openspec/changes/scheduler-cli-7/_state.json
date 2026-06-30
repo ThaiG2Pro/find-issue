@@ -1,0 +1,160 @@
+{
+  "ticket_id": "7",
+  "feature_slug": "scheduler-cli-7",
+  "change_name": "scheduler-cli-7",
+  "type": "feature",
+  "rigor": "full",
+  "testcase_export": "md",
+  "phases": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "isolation": {
+    "method": "branch",
+    "branch": "feature/7-scheduler-cli-7",
+    "worktree_path": null,
+    "base_branch": "feature/6-delivery"
+  },
+  "current_phase": "S6",
+  "gates": {
+    "S2": "passed",
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  },
+  "convergence": {
+    "S2": {
+      "stable": 3,
+      "rounds": 4
+    },
+    "S3": {
+      "stable": 3,
+      "rounds": 3
+    }
+  },
+  "last_updated": "2026-06-30",
+  "last_agent": "developer",
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "date": "2026-06-30",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/scheduler-cli/spec.md",
+        "stride-threat-model.md"
+      ],
+      "key_outcome": "Requirements intake: 1 new capability scheduler-cli wiring all 5 prior stages; 6 requirements, 20 edge cases, STRIDE PASS (1 High RF-1 secret-leak mitigated). Scope closed: V1 = osspulse run end-to-end; cron/delta/seen-filtering = V2 out of scope. Key decision D-1 (no-LLM path delivers unsummarized digest). No Figma (CLI)."
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "date": "2026-06-30",
+      "artifacts_produced": [
+        "specs/scheduler-cli/spec.md (full)",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl",
+        "proposal.md Non-Goals"
+      ],
+      "key_outcome": "Functional spec: 22 ACs (all CONFIRMED), 12 BRs, 6 INTs across 6 requirements. Resolved A6 error-taxonomy into AC-7-004/005/017. Added Non-Goals section. spec-auditor PASS, openspec validate PASS."
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "date": "2026-06-30",
+      "artifacts_produced": [
+        "design.md",
+        "tasks.md",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "6 ADRs, 0 endpoints (CLI-only, no openapi.yaml), 24 tasks across 7 groups (2 checkpoints), 22/22 ACs covered. Resolved GAP-001 (model+Redis derived in pipeline, no Config change — ADR-002) and GAP-003 (exit 0 on all-fail/rate-limit — ADR-005). Normative exception->action table (ADR-003). openspec validate PASS, cross-artifact-audit 0 CRITICAL/HIGH."
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-06-30",
+      "artifacts_produced": [
+        "src/osspulse/pipeline.py",
+        "src/osspulse/cli.py (updated)",
+        "tests/test_pipeline.py",
+        "README.md (updated)",
+        ".env.example (updated)",
+        "dev-test-report.md"
+      ],
+      "key_outcome": "25/25 tasks complete. 271 tests pass, 98.51% coverage. pipeline.py implements run_pipeline(config) wiring all 5 stages. ADR-003 catch order verified most-specific-first. RF-1 clean. No-LLM path implemented. import isolation test excludes pipeline.py."
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-06-30",
+      "artifacts_produced": [
+        "qa-report.md"
+      ],
+      "key_outcome": "GO — 0 Critical/High bugs. 22/22 ACs verified. Coverage 98.51%. Security audit clean (RF-1 mitigated). Dependency audit clean (pip-audit clean). 3 hollow TCs (H1-a/b/c) Low severity, accepted via code review. Operator note: live smoke test required before S6 archive."
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-06-30",
+      "artifacts_produced": [
+        "openspec/changes/scheduler-cli-7/release.md",
+        "CHANGELOG.md",
+        "pyproject.toml (version 0.7.0)",
+        "tests/test_cli.py (E501 lint fix)",
+        "_handoff.md (S6 completion)",
+        "_decisions.jsonl (S6 entries)"
+      ],
+      "key_outcome": "S6 complete — release.md, CHANGELOG.md (0.1.0–0.7.0), pyproject.toml bumped to 0.7.0. Lint+format+271 tests pass. BrokenPipe exit-0 confirmed (environment-limited; operator must verify with live token). README verified accurate. 1 pre-existing E501 lint error in test_cli.py fixed. Routing to sdlc for archive + git tag v0.7.0."
+    }
+  ],
+  "active_concerns": [
+    "ADR-003 catch ORDER verified PASS — most-specific-first confirmed in _collect_all.",
+    "RF-1 (HIGH) verified CLEAN — all log calls use type(exc).__name__ or static strings.",
+    "BrokenPipeError handler (AC-7-013): static-only test — S6 operator MUST verify: uv run osspulse run | head -1 exits cleanly before tagging release.",
+    "Live integration smoke test NOT run in S5 (no GITHUB_TOKEN). S6 MUST run live smoke before archiving.",
+    "H1-b (AC-7-021) / H1-c (AC-7-018): hollow TCs, Low priority — improve in next cycle if test quality standards raised.",
+    "Import isolation test valid only from source install — if project ships as wheel, test needs updating."
+  ],
+  "terminology": {
+    "osspulse run": "Single CLI entry point triggering one full V1 pipeline run.",
+    "run_pipeline(config)": "Orchestrator in osspulse.pipeline wiring the 5 stages; replaces the NotImplementedError stub (AC-7-003).",
+    "No-LLM-provider path": "llm_provider is None -> wrap RawItem as SummarizedItem(summary=NO_LLM_PLACEHOLDER), render, exit 0 (D-1, ADR-006, AC-7-008/022).",
+    "Batch summarize": "Pipeline calls summarize_items(list[RawItem]) exactly once, not per-item summarize() (AC-7-007, BR-7-009).",
+    "Auth-fatal": "AuthError (401/403) is fatal exit 1 (shared token), never per-repo skip (AC-7-005, BR-7-002).",
+    "Per-repo failure isolation": "InvalidRepoError/NetworkError/CollectorError per repo -> log+skip+continue (AC-7-004, BR-7-001).",
+    "Rate-limit-terminal": "Terminal RateLimitError breaks the repo loop but delivers items already collected, exit 0 (AC-7-017, BR-7-008).",
+    "Seen-recording (V1)": "mark_seen recorded for idempotency; seen items NOT filtered (delta is V2) (AC-7-011, BR-7-011).",
+    "One-digest rule": "One run = one summarize_items, one render, one deliver call (A2, BR-7-007).",
+    "_PROVIDER_MODEL / _model_for": "Pipeline-private provider->model map + fallback supplying the required SummarizerConfig.model without a Config field (ADR-002, AC-7-007).",
+    "_build_cache / _NullCache": "Best-effort Redis construction from REDIS_URL; _NullCache on failure so the run degrades not crashes (ADR-002, AC-7-009).",
+    "Exception->action ladder": "Per-repo try ordered most-specific-first: AuthError(fatal) -> RateLimitError(break+deliver) -> Invalid/Network/CollectorError(skip) (ADR-003).",
+    "Sanctioned cross-stage importer": "pipeline.py is the ONLY module allowed to import multiple stages; import-isolation test excludes it (ADR-001, AC-7-002)."
+  },
+  "next_action": {
+    "agent": "sdlc",
+    "command": "/archive 7 scheduler-cli-7",
+    "prerequisite": "S6 release artifacts complete: release.md, CHANGELOG.md, pyproject.toml v0.7.0, lint/format/tests all pass. Operator: run live smoke test with real GITHUB_TOKEN before tagging v0.7.0.",
+    "blocker": "AWAITING ARCHIVE — operator live smoke test recommended before git tag",
+    "routes_to": "openspec archive scheduler-cli-7 + git tag v0.7.0",
+    "priority_reading": [
+      "openspec/changes/scheduler-cli-7/release.md",
+      "openspec/changes/scheduler-cli-7/qa-report.md",
+      "CHANGELOG.md"
+    ],
+    "watch_items": [
+      "Run live smoke test: uv run osspulse run --config config.toml with real GITHUB_TOKEN before tagging.",
+      "uv run osspulse run | head -1 must exit cleanly (BrokenPipeError handler — AC-7-013). Verify with working config.",
+      "Tag v0.7.0 only after live smoke test passes.",
+      "H1-b (AC-7-021) / H1-c (AC-7-018): Low priority hollow TCs — note in retro, improve next cycle."
+    ],
+    "key_outcome": "S6 COMPLETE — release.md, CHANGELOG.md, version 0.7.0, lint+format+tests pass. Routing to sdlc for archive."
+  }
+}

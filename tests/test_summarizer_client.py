@@ -25,9 +25,13 @@ _CFG = SummarizerConfig(model="openai/gpt-4o-mini")
 
 def _item(**kwargs) -> RawItem:
     defaults = dict(
-        repo="owner/repo", item_type="issue", item_id="1",
-        title="Bug in parser", body="The parser crashes on empty input.",
-        url="https://x", created_at="2024-01-01T00:00:00Z",
+        repo="owner/repo",
+        item_type="issue",
+        item_id="1",
+        title="Bug in parser",
+        body="The parser crashes on empty input.",
+        url="https://x",
+        created_at="2024-01-01T00:00:00Z",
     )
     return RawItem(**{**defaults, **kwargs})
 
@@ -83,6 +87,7 @@ def _summarizer(completion=None, cache=None) -> LiteLLMSummarizer:
 def test_LLMClient_protocol_signature_unchanged_AC_4_003():
     """LLMClient Protocol still declares exactly summarize(item: RawItem) -> str (AC-4-003)."""
     import inspect
+
     sig = inspect.signature(LLMClient.summarize)
     params = list(sig.parameters.keys())
     assert "self" in params
@@ -96,6 +101,7 @@ def test_LiteLLMSummarizer_satisfies_LLMClient_protocol_AC_4_003():
     s = _summarizer()
     assert callable(s.summarize)
     import inspect
+
     sig = inspect.signature(s.summarize)
     assert "item" in sig.parameters
 
@@ -112,6 +118,7 @@ def test_cache_hit_returns_cached_no_llm_call_AC_4_004():
     # Pre-populate cache with the key the summarizer would compute
     from osspulse.summarizer.keys import cache_key, content_hash
     from osspulse.summarizer.normalize import prepare_input
+
     t, b = prepare_input(item.title, item.body)
     key = cache_key(item, content_hash(t, b))
     cache = _FakeCache(store={key: "cached summary"})
@@ -150,6 +157,7 @@ def test_cache_key_format_end_to_end_AC_4_006():
     """The key stored in cache matches summary:{repo}:{type}:{id}:{hash} (AC-4-006)."""
     from osspulse.summarizer.keys import cache_key, content_hash
     from osspulse.summarizer.normalize import prepare_input
+
     cache = _FakeCache()
     item = _item(repo="a/b", item_type="issue", item_id="99")
     _summarizer(cache=cache).summarize(item)
@@ -211,6 +219,7 @@ def test_empty_body_calls_llm_with_title_only_AC_4_017():
 def test_huge_body_truncated_and_hashed_post_truncation_AC_4_019():
     """Body > 8000 chars is truncated; cache key uses the truncated hash (AC-4-019)."""
     from osspulse.summarizer.keys import cache_key, content_hash
+
     cap = _CFG.input_char_cap  # 8000
     huge_body = "x" * 20_000
     item = _item(body=huge_body)
@@ -232,8 +241,11 @@ def test_api_key_passed_to_completion_not_hardcoded_AC_4_022():
     """api_key is passed to completion(); no secret literal in module source (AC-4-022)."""
     completion = MagicMock(return_value=_mock_response("ok."))
     LiteLLMSummarizer(
-        provider="openai", api_key="secret-key-123",
-        cache=_FakeCache(), config=_CFG, completion=completion,
+        provider="openai",
+        api_key="secret-key-123",
+        cache=_FakeCache(),
+        config=_CFG,
+        completion=completion,
     ).summarize(_item())
     _, kwargs = completion.call_args
     assert kwargs.get("api_key") == "secret-key-123"
@@ -242,6 +254,7 @@ def test_api_key_passed_to_completion_not_hardcoded_AC_4_022():
     import inspect
 
     import osspulse.summarizer.client as mod
+
     src = inspect.getsource(mod)
     assert "secret-key" not in src
     assert "sk-" not in src
@@ -252,8 +265,11 @@ def test_timeout_passed_to_completion_RF2():
     completion = MagicMock(return_value=_mock_response("ok."))
     cfg = SummarizerConfig(model="openai/gpt-4o-mini", request_timeout_seconds=42.0)
     LiteLLMSummarizer(
-        provider="openai", api_key=None,
-        cache=_FakeCache(), config=cfg, completion=completion,
+        provider="openai",
+        api_key=None,
+        cache=_FakeCache(),
+        config=cfg,
+        completion=completion,
     ).summarize(_item())
     _, kwargs = completion.call_args
     assert kwargs.get("timeout") == 42.0
@@ -303,20 +319,24 @@ def test_llm_4xx_item_skipped_AC_4_010(caplog):
 
 def test_llm_5xx_item_skipped_AC_4_010():
     """InternalServerError (5xx): item skipped (AC-4-010)."""
+
     def fake_completion(**kwargs):
         raise litellm.exceptions.InternalServerError(
             message="server error", model="m", llm_provider="openai"
         )
+
     result = _summarizer(completion=fake_completion).summarize_items([_item()])
     assert result == []
 
 
 def test_llm_rate_limit_item_skipped_AC_4_010():
     """RateLimitError (429): item skipped (AC-4-010)."""
+
     def fake_completion(**kwargs):
         raise litellm.exceptions.RateLimitError(
             message="rate limit", model="m", llm_provider="openai"
         )
+
     result = _summarizer(completion=fake_completion).summarize_items([_item()])
     assert result == []
 
@@ -334,9 +354,7 @@ def test_item_b_fails_a_c_succeed_AC_4_011():
             )
         return _mock_response("A summary.")
 
-    result = _summarizer(completion=fake_completion).summarize_items(
-        [item_a, item_b, item_c]
-    )
+    result = _summarizer(completion=fake_completion).summarize_items([item_a, item_b, item_c])
     assert [r.raw.item_id for r in result] == ["a", "c"]
     assert all(isinstance(r, SummarizedItem) for r in result)
 
@@ -355,16 +373,14 @@ def test_failure_log_no_api_key_or_prompt_AC_4_012(caplog):
 
     log_text = " ".join(caplog.messages)
     assert "owner/repo/issue/7" in log_text  # identity present
-    assert "test-key" not in log_text          # key absent
+    assert "test-key" not in log_text  # key absent
     assert "Secret body content" not in log_text  # body absent
 
 
 def test_fully_empty_item_skipped_no_llm_call_AC_4_018():
     """Item with empty title+body is skipped; completion never called (AC-4-018)."""
     completion = MagicMock()
-    result = _summarizer(completion=completion).summarize_items(
-        [_item(title="", body="")]
-    )
+    result = _summarizer(completion=completion).summarize_items([_item(title="", body="")])
     assert result == []
     completion.assert_not_called()
 
@@ -376,9 +392,9 @@ def test_second_run_unchanged_items_zero_llm_calls_AC_4_020():
     s = _summarizer(completion=completion, cache=cache)
     items = [_item(item_id=str(i), body=f"Body {i}.") for i in range(3)]
 
-    s.summarize_items(items)          # run 1 — fills cache
+    s.summarize_items(items)  # run 1 — fills cache
     completion.reset_mock()
-    s.summarize_items(items)          # run 2 — all cache hits
+    s.summarize_items(items)  # run 2 — all cache hits
 
     completion.assert_not_called()
 
@@ -398,9 +414,7 @@ def test_no_github_or_state_import_AC_4_021():
             for dep in vars(mod).values():
                 if hasattr(dep, "__module__") and dep.__module__:
                     for f in forbidden:
-                        assert not dep.__module__.startswith(f), (
-                            f"{mod_name} imports {f}"
-                        )
+                        assert not dep.__module__.startswith(f), f"{mod_name} imports {f}"
 
 
 def test_empty_llm_output_item_skipped_EC_012():

@@ -157,7 +157,5 @@ class LiteLLMSummarizer:
                 # AC-4-009/010: timeout / 4xx / 5xx / 429 — identity + error class only.
                 # litellm exceptions (Timeout, RateLimitError, etc.) inherit from
                 # openai.APIError (their actual common base), not litellm.exceptions.APIError.
-                logger.warning(
-                    "skip %s: LLM error %s", _identity(item), type(exc).__name__
-                )
+                logger.warning("skip %s: LLM error %s", _identity(item), type(exc).__name__)
         return out

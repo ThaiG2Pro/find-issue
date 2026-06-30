@@ -1,6 +1,6 @@
 [project]
 name = "osspulse"
-version = "0.1.0"
+version = "0.7.0"
 requires-python = ">=3.13"
 dependencies = [
     "typer>=0.12",
@@ -41,7 +41,7 @@ testpaths = ["tests"]
 source = ["osspulse"]
 omit = [
     "src/osspulse/ports.py",
-    "src/osspulse/pipeline.py",
+
 ]
 
 [tool.coverage.report]

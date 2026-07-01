@@ -21,6 +21,17 @@ một final flush của `sys.stdout` khi process exit, xảy ra SAU khi `deliver
 Chỉ top-level handler + `os.dup2(devnull, sys.stdout.fileno())` mới suppress được cả hai
 điểm. Pattern: `except BrokenPipeError → os.dup2 → Exit(0)` trong `cli.py:run`.
 
+## 2026-07-01 — scheduler-cli-7: stub→real transition breaks tests that mock at the wrong boundary
+
+When a stub (`NotImplementedError`) is replaced by a real implementation, any test that invokes
+the CLI command end-to-end without mocking the new implementation will start making real network
+calls (e.g. GitHub API) and fail with `AuthError` or similar. Pattern: when `run_pipeline` became
+real, `test_run_valid_config_exits_zero` broke because it called the CLI with a fake token and
+hit the live `AuthError` path. Fix at transition time: mock `run_pipeline` at the module boundary
+in all pre-existing CLI tests (`@patch("osspulse.cli.run_pipeline")`), and rely on the new
+`test_pipeline.py` for the implementation's own behavioral coverage. The boundary shift is a
+planned S4 task, not a surprise — add it to tasks.md when you know a stub will go real.
+
 ## 2026-06-29 — delivery-6: subagent spawn (kiro_default) bị invalid_redirect_uri — chạy trực tiếp
 
 Trong session này `InvokeSubagents` với `kiro_default`/`developer`/`qa` đều fail ngay lập tức

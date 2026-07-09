@@ -6,6 +6,46 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.8.0] — 2026-07-09
+
+### Added (v2-005-push-delivery)
+
+- **Discord webhook delivery** (`destination = "discord"`): digest POSTs to a Discord
+  channel webhook after every run. Configure via `[output] destination = "discord"` in
+  config.toml and `DISCORD_WEBHOOK_URL` in .env (AC-V2-005-001).
+- **Smart 2000-char split**: long digests split automatically at `## repo` section
+  boundaries first, then line, then hard char-slice — every message ≤ 2000 Unicode code
+  points (Discord API limit) (AC-V2-005-004..007).
+- **Configurable webhook env var**: `webhook_env` key overrides the env var name
+  (AC-V2-005-012).
+- **Security**: webhook URL never in logs/errors — DeliveryError uses status codes and
+  exception type names only (AC-V2-005-011, STRIDE T1).
+- **SSRF guard**: https + discord.com/discordapp.com host enforced at config-load
+  (AC-V2-005-014..015).
+- **10s timeout**: DeliveryError on timeout/network failure → exit 1 (AC-V2-005-010).
+
+### Config snippet
+
+```toml
+[output]
+destination = "discord"
+# webhook_env = "DISCORD_WEBHOOK_URL"   # optional override
+```
+
+```bash
+# .env
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
+```
+
+### Known limitations
+
+- Partial multi-message delivery: messages 1..k-1 already sent if message k fails;
+  no rollback (RISK-1, accepted — retry/backoff in V4).
+- pipeline.py discord branch (291-294) not covered by pipeline tests; adapter fully
+  tested (24 tests).
+
+---
+
 ## [0.7.0] — 2026-06-30
 
 ### Added (scheduler-cli-7, ticket #7)

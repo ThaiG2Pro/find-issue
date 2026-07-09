@@ -11,6 +11,7 @@ import os
 from typing import TYPE_CHECKING
 
 from osspulse.cache.redis_cache import RedisSummaryCache
+from osspulse.delivery.discord_delivery import DiscordDelivery
 from osspulse.delivery.file_delivery import FileDelivery
 from osspulse.delivery.stdout_delivery import StdoutDelivery
 from osspulse.github.client import GitHubCollector
@@ -103,6 +104,29 @@ def _build_cache() -> SummaryCache:
 # ---------------------------------------------------------------------------
 
 
+def _partition_new(
+    items: list[RawItem], state: JsonFileStateStore
+) -> tuple[list[RawItem], list[RawItem]]:
+    """Split *items* into (new, seen) using a pre-``mark_seen`` snapshot (ADR-001).
+
+    Reads ``state.is_seen(repo, item_type, item_id)`` only — no writes. MUST be called
+    BEFORE ``state.mark_seen(items)`` in ``_collect_all``: ``is_seen``/``mark_seen`` share
+    the same in-memory cache, so calling this after ``mark_seen`` would read the mutated
+    cache and report everything as seen (R1 bug, AC-V2-001-004/010).
+
+    No content hashing — identity is ``repo+item_type+item_id`` only (BR-V2-001-004,
+    EC-005); an edited-but-same-id item is still "seen".
+    """
+    new: list[RawItem] = []
+    seen: list[RawItem] = []
+    for item in items:
+        if state.is_seen(item.repo, item.item_type, item.item_id):
+            seen.append(item)
+        else:
+            new.append(item)
+    return new, seen
+
+
 def _collect_all(
     config: Config,
     collector: GitHubCollector,
@@ -110,27 +134,77 @@ def _collect_all(
 ) -> tuple[list[RawItem], dict[str, int]]:
     """Collect issues across all watched repos with per-repo failure isolation (ADR-003).
 
-    Returns (all_items, stats) where stats = {repos, collected, skipped}.
+    Returns (all_items, stats) where stats = {repos, collected, skipped, seen, new}.
     mark_seen is called per repo at collect time, decoupled from summarization (AC-7-019).
+    The delta filter (_partition_new) reads the pre-mark_seen snapshot so first-seen-this-run
+    items still render (AC-V2-001-004); mark_seen always records the FULL fetched list,
+    never just `new` (BR-V2-001-002, AC-V2-001-010).
 
     Exception → action (ADR-003, most-specific-first — ORDER IS LOAD-BEARING):
       AuthError        → re-raise (fatal; all repos share one token)      AC-7-005
       RateLimitError   → break loop (deliver partial results)              AC-7-017
       Other CollectorError → log WARN + skip repo + continue               AC-7-004
+
+    NOTE (ADR-003, AC-V2-001-009): no try/except is added around `is_seen`/`_partition_new`
+    or `state.load()` — a `StateError` from a corrupt/unreadable state file MUST propagate
+    out of this function (it is not a `CollectorError` subclass, so the except arms below do
+    not catch it) all the way to the CLI, which already maps `StateError → Error: <msg>` exit 1.
+    A defensive catch here would silently disable the delta filter — the exact anti-pattern
+    AC-V2-001-009 forbids.
     """
     all_items: list[RawItem] = []
-    stats = {"repos": len(config.watched_repos), "collected": 0, "skipped": 0}
+    stats = {"repos": len(config.watched_repos), "collected": 0, "skipped": 0, "seen": 0, "new": 0}
 
     for repo in config.watched_repos:
         repo_name = repo.full_name
         try:
-            items = collector.fetch_items(repo_name, config.lookback_days)
-            # mark_seen BEFORE summarize — decoupled (AC-7-019); empty list is safe no-op
+            issues = collector.fetch_items(repo_name, config.lookback_days)
+            # ADR-003 (AC-V2-003-022): inner guard wraps ONLY fetch_releases.
+            # Issues already collected survive a release-fetch failure.
+            # AuthError + terminal RateLimitError are deliberately NOT caught here —
+            # they must propagate to the outer arms above so the fatal/partial-deliver
+            # semantics (AC-7-005 / AC-7-017) are preserved.
+            try:
+                releases = collector.fetch_releases(repo_name, config.lookback_days)
+            except (InvalidRepoError, NetworkError) as exc:
+                # Recoverable per-release failures — issues already collected survive.
+                # CollectorError base NOT listed here because AuthError and RateLimitError
+                # are subclasses of CollectorError and must NOT be swallowed:
+                #   AuthError → outer arm re-raises as fatal (AC-7-005)
+                #   RateLimitError → outer arm breaks + partial-deliver (AC-7-017)
+                logger.warning("skipped releases for %s: %s", repo_name, type(exc).__name__)
+                releases = []
+            except CollectorError as exc:
+                # Any other concrete CollectorError subclass (not Auth/RateLimit) is
+                # treated as recoverable. Auth and RateLimit are caught by outer arms.
+                if isinstance(exc, (AuthError, RateLimitError)):
+                    raise  # propagate fatal / terminal errors to outer arms
+                logger.warning("skipped releases for %s: %s", repo_name, type(exc).__name__)
+                releases = []
+            # AC-V2-003-019: concatenate before partition so _partition_new sees one list
+            # and mark_seen records the full issues+releases set in one call (R1 invariant).
+            items = issues + releases
+            # R1 (ADR-001): partition BEFORE mark_seen — snapshot is_seen while it still
+            # reflects the PREVIOUS run's state, not this run's writes.
+            new, seen = _partition_new(items, state)
+            # mark_seen BEFORE summarize — decoupled (AC-7-019); empty list is safe no-op.
+            # Always pass the FULL `items` (never `new`) — recording is unconditional and
+            # orthogonal to rendering (BR-V2-001-002, AC-V2-001-010).
             state.mark_seen(items)
-            all_items.extend(items)
+            # Selection-at-extend (ADR-004): delta_enabled picks what's RENDERED; what's
+            # RECORDED (above) never changes. Never re-query is_seen after mark_seen.
+            all_items.extend(new if config.delta_enabled else items)
             stats["collected"] += len(items)
+            stats["seen"] += len(seen)
+            stats["new"] += len(new)
             # AC-7-015: exactly one outcome log line per repo, no secret
-            logger.info("collected %d item(s) from %s", len(items), repo_name)
+            logger.info(
+                "collected %d item(s) from %s (seen=%d new=%d)",
+                len(items),
+                repo_name,
+                len(seen),
+                len(new),
+            )
 
         except AuthError:
             # Fatal — shared token is invalid; no point continuing (AC-7-005, BR-7-002)
@@ -214,15 +288,19 @@ def run_pipeline(config: Config) -> None:
     # --- Deliver ONCE (BR-7-007) ---
     if config.output_destination == "stdout":
         delivery = StdoutDelivery()
+    elif config.output_destination == "discord":
+        delivery = DiscordDelivery(config.webhook_url, timeout=10.0)  # AC-V2-005-001
     else:
         delivery = FileDelivery(config.output_path)
     delivery.deliver(digest)
 
-    # --- Run-summary log (AC-7-021); no secret in line ---
+    # --- Run-summary log (AC-7-021); no secret in line --- (AC-V2-001-010: seen/new counts)
     logger.info(
-        "run complete — repos: %d, collected: %d, summarized: %d, skipped: %d",
+        "run complete — repos: %d, collected: %d, seen: %d, new: %d, summarized: %d, skipped: %d",
         stats["repos"],
         stats["collected"],
+        stats.get("seen", 0),
+        stats.get("new", 0),
         stats.get("summarized", 0),
         stats["skipped"],
     )

@@ -3,6 +3,7 @@ import tomllib
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -45,6 +46,20 @@ def _validate_lookback(watchlist: dict) -> int:
     return value
 
 
+def _validate_delta(data: dict) -> bool:
+    """Parse the optional ``[delta] enabled`` key, defaulting to ``True`` (AC-V2-001-002).
+
+    Bool-trap guard mirrors ``_validate_lookback``: ``type(value) is not bool`` (not
+    ``isinstance``, since ``isinstance(True, int)`` is ``True``) — rejects non-bool values
+    like ``"yes"`` or ``1`` fail-fast at load time (AC-V2-001-007).
+    """
+    delta_section = data.get("delta", {})
+    value = delta_section.get("enabled", True)
+    if type(value) is not bool:  # noqa: E721 — bool trap, see _validate_lookback
+        raise ConfigError("delta.enabled must be a boolean")
+    return value
+
+
 def _resolve_token(env: Mapping[str, str]) -> str:
     token = env.get("GITHUB_TOKEN", "").strip()
     if not token:
@@ -64,6 +79,35 @@ def _resolve_llm(data: dict, env: Mapping[str, str]) -> tuple[str | None, str | 
             raise ConfigError(f"LLM provider '{provider}' requires API key")
         return provider, api_key
     return provider, None
+
+
+def _resolve_discord_url(output_section: dict, env: Mapping[str, str]) -> tuple[str, str]:
+    """Resolve + validate the Discord webhook URL from env (AC-V2-005-012..015).
+
+    Returns (webhook_url, webhook_env_name).
+    Raises ConfigError on missing/empty env var, non-https scheme, or non-Discord host.
+    Never logs the URL value (T1/AC-V2-005-011).
+    """
+    _DISCORD_HOSTS = frozenset({"discord.com", "discordapp.com"})
+
+    env_name: str = output_section.get("webhook_env", "DISCORD_WEBHOOK_URL")
+    url = env.get(env_name, "").strip()
+    if not url:
+        raise ConfigError(
+            f"output.destination='discord' requires {env_name} env var to be set"
+        )  # AC-V2-005-013 — no URL in message (it's empty anyway)
+
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ConfigError(
+            "output.destination='discord': webhook URL must use https scheme"
+        )  # AC-V2-005-014 — no URL value in message
+    if parsed.hostname not in _DISCORD_HOSTS:
+        raise ConfigError(
+            "output.destination='discord': webhook host must be discord.com or discordapp.com"
+        )  # AC-V2-005-015 — no URL value in message
+
+    return url, env_name
 
 
 def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Config:
@@ -106,18 +150,27 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
     state_section = data.get("state", {})
     state_path: str = state_section.get("state_path", "./.osspulse/state.json")
 
-    # Step 9: optional [output] section — fail-fast validation (ADR-004, AC-6-010..013)
+    # Step 9: [output] section — fail-fast validation (ADR-004, AC-6-010..013, AC-V2-005-012..015)
     output_section = data.get("output", {})
     output_destination: str = output_section.get("destination", "file")
-    if output_destination not in ("file", "stdout"):
+    if output_destination not in ("file", "stdout", "discord"):
         raise ConfigError(
-            f"output.destination must be 'file' or 'stdout', got {output_destination!r}"
+            f"output.destination must be 'file', 'stdout', or 'discord', got {output_destination!r}"
         )
     output_path: str = output_section.get("output_path", "./digest.md")
     if output_destination == "file" and (
         not isinstance(output_path, str) or not output_path.strip()
     ):
         raise ConfigError("output.output_path must be a non-empty string when destination='file'")
+
+    # Discord webhook — resolve + validate env var (ADR-003, AC-V2-005-012..015)
+    webhook_url: str | None = None
+    webhook_env: str = "DISCORD_WEBHOOK_URL"
+    if output_destination == "discord":
+        webhook_url, webhook_env = _resolve_discord_url(output_section, env)
+
+    # Step 10: optional [delta] section — fail-fast bool-trap validation (AC-V2-001-002/007)
+    delta_enabled = _validate_delta(data)
 
     return Config(
         watched_repos=watched_repos,
@@ -128,4 +181,7 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
         state_path=state_path,
         output_destination=output_destination,
         output_path=output_path,
+        delta_enabled=delta_enabled,
+        webhook_url=webhook_url,
+        webhook_env=webhook_env,
     )

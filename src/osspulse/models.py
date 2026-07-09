@@ -21,6 +21,9 @@ class Config:
     state_path: str = "./.osspulse/state.json"  # AC-3-013
     output_destination: str = "file"  # AC-6-010, BR-6-007
     output_path: str = "./digest.md"  # AC-6-010, BR-6-007
+    delta_enabled: bool = True  # AC-V2-001-002
+    webhook_url: str | None = None  # AC-V2-005-012, BR-V2-005-005; resolved from env at load
+    webhook_env: str = "DISCORD_WEBHOOK_URL"  # AC-V2-005-012; name of the env var
 
 
 @dataclass(frozen=True)

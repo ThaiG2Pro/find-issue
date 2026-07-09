@@ -6,6 +6,52 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.9.0] — 2026-07-09
+
+### Added (v2-006-discussions)
+
+- **GitHub Discussions collection** via GraphQL API: `fetch_discussions` on
+  `GitHubCollector` queries the GitHub GraphQL endpoint and returns discussions as
+  `RawItem(item_type="discussion")` — same model as issues and releases (AC-V2-006-001).
+- **Approach A inclusion**: discussions are included if their `createdAt` falls within
+  `lookback_days` from the run time — identical logic to issues; not hotness-based
+  (AC-V2-006-001, AC-V2-006-002).
+- **Always-on collection**: every run attempts to collect discussions for every watched
+  repo; no opt-in config required (AC-V2-006-018).
+- **Disabled-Discussions silently skipped**: repos where GitHub Discussions is disabled
+  (or not found) return an empty list — the run continues with the remaining repos
+  and item types unaffected (AC-V2-006-003, ADR-003).
+- **`200-with-errors` model**: the GraphQL endpoint always returns HTTP 200. A null
+  `discussions` connection (shape-first detection) signals disabled/not-found → skip
+  repo; a non-null connection with `errors` → raise `CollectorError` (ADR-003).
+- **ADR-002 `json_body` routing**: `_request_with_retry` sends `GET` for REST calls
+  (issues/releases) and `POST` for GraphQL calls (`json_body=dict`). One shared
+  retry/classify path — no duplication (ADR-002).
+- **Discussion identity**: `repo + "discussion" + str(number)` — same pattern as
+  other item types; idempotency via the state store (AC-V2-006-005, AC-V2-006-020).
+- **Digest grouping**: discussions appear under `### Discussions (N)` within each
+  repo section of the rendered Markdown digest (AC-V2-006-021).
+- **Token discipline**: `GITHUB_TOKEN` is applied only to the httpx client
+  Authorization header — never stored on `self`, never in the GraphQL POST body,
+  never in error messages or logs (AC-V2-006-017).
+- **Pipeline inner-guard**: `AuthError` and `RateLimitError` propagate out of the
+  discussions-collection loop (fatal/terminal treatment), matching the behaviour of
+  the issues/releases guard (AC-V2-006-022).
+
+### Changed
+
+- `pipeline._collect_all`: discussions for each repo are fetched after issues and
+  releases and concatenated before `_partition_new` / `mark_seen` — the R1
+  partition-before-mark-seen invariant is preserved (AC-V2-006-019).
+- `GitHubCollector`: extended with `fetch_discussions` (adapter-only, no change to
+  `GitHubClient` Protocol) and shared `_request_with_retry` POST path (ADR-002).
+
+### Tests
+
+- 73 new tests; suite total: 550. Coverage 96.25% (client.py 99%, pipeline.py 93%).
+
+---
+
 ## [0.8.0] — 2026-07-09
 
 ### Added (v2-005-push-delivery)

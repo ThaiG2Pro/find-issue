@@ -3,8 +3,9 @@
 ![CI](https://github.com/ThaiG2Pro/find-issuse/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 A CLI tool that watches a self-chosen list of GitHub repositories and produces an
-LLM-summarized digest of new issues and releases, so you can understand a repo deeply
-before contributing — without manually scanning Issues or Releases tabs.
+LLM-summarized digest of new issues, releases, and discussions, so you can understand a
+repo deeply before contributing — without manually scanning Issues, Releases, or
+Discussions tabs.
 
 Goal: depth of understanding, not speed. This is a personal/self-host tool for a
 single operator; it is not a multi-tenant SaaS.
@@ -15,8 +16,8 @@ single operator; it is not a multi-tenant SaaS.
 
 **What is sent to the LLM provider?**
 
-Only the `title` and `body` of each GitHub issue or release are sent. No other fields — no
-issue/release URL, no issue number, no tag name, no repository name, no GitHub username, no
+Only the `title` and `body` of each GitHub issue, release, or discussion are sent. No
+other fields — no URL, no number, no tag name, no repository name, no GitHub username, no
 creation date, no labels, and no GitHub API token — leave your machine as part of an LLM
 call.
 
@@ -131,7 +132,7 @@ See `.env.example` for a full annotated template.
 ## Usage
 
 ```bash
-# Run a digest (collect issues + releases → summarize → write Markdown digest to configured destination)
+# Run a digest (collect issues, releases, and discussions → summarize → write Markdown digest to configured destination)
 uv run osspulse run
 
 # Pipe to stdout instead (set destination = "stdout" in config.toml, or redirect)
@@ -245,12 +246,20 @@ process dies (`kill -9`, crash) — no stale-lock heuristic is needed.
 - **Ports and adapters (hexagonal-lite)**: every external dependency (GitHub, LLM,
   delivery, state, cache) sits behind a Python `Protocol` interface so it can be
   swapped or mocked independently.
-- **Digest includes Issues + Releases (V2)**: the digest groups items per repo into
-  `### Issues`, `### Releases` (and future `### Discussions`) sections. Releases are
-  fetched via a dedicated `fetch_releases` method on the collector adapter; the
-  `GitHubClient` Protocol stays frozen (adapter-only extension). Draft releases
-  (`published_at == null`) are excluded; prereleases are included. Release identity
-  is `repo + "release" + tag_name`, reusing the item-type-agnostic state-store key.
+- **Digest includes Issues + Releases + Discussions (V2)**: the digest groups items per
+  repo into `### Issues`, `### Releases`, and `### Discussions` sections. Releases are
+  fetched via a dedicated `fetch_releases` method on the collector adapter; Discussions
+  via `fetch_discussions` using the GitHub GraphQL API. The `GitHubClient` Protocol stays
+  frozen (adapter-only extension). Draft releases (`published_at == null`) are excluded;
+  prereleases are included. Release identity is `repo + "release" + tag_name`; Discussion
+  identity is `repo + "discussion" + str(number)`.
+- **GitHub Discussions via GraphQL**: `fetch_discussions` sends a POST to
+  `https://api.github.com/graphql` with a fixed query constant and `owner`/`name`/cursor
+  variables. The `GITHUB_TOKEN` is applied only to the httpx Authorization header — never
+  in the GraphQL POST body. Repos where Discussions is disabled return an empty list
+  (null-shape detection, ADR-003); the run continues unaffected. HTTP transport routing:
+  `_request_with_retry` uses GET for REST calls and POST for GraphQL calls via the
+  `json_body` parameter (ADR-002) — one shared retry/backoff path for both.
 - **Cache-aside for LLM summaries**: Redis stores already-computed summaries keyed by
   `summary:{repo}:{type}:{id}:{sha256(title+body)}`. Cache failures degrade gracefully
   — they never crash a run.

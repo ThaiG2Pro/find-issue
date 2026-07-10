@@ -60,6 +60,24 @@ def _validate_delta(data: dict) -> bool:
     return value
 
 
+def _validate_etag_cache(data: dict) -> tuple[bool, str]:
+    """Parse the optional ``[etag_cache]`` section (AC-V2-007-020/021).
+
+    Returns ``(etag_cache_enabled, etag_cache_path)``.
+
+    Bool-trap guard mirrors ``_validate_delta``: ``type(value) is not bool`` rejects
+    non-bool values like ``"yes"`` or ``1`` fail-fast at load time (AC-V2-007-021).
+    Absent section → defaults: ``enabled=True``, ``path="./.osspulse/etags.json"``.
+    """
+    _DEFAULT_ETAG_PATH = "./.osspulse/etags.json"
+    etag_section = data.get("etag_cache", {})
+    value = etag_section.get("enabled", True)
+    if type(value) is not bool:  # noqa: E721 — bool trap: isinstance(True, int) is True
+        raise ConfigError("etag_cache.enabled must be a boolean")
+    path = etag_section.get("path", _DEFAULT_ETAG_PATH)
+    return value, str(path)
+
+
 def _resolve_token(env: Mapping[str, str]) -> str:
     token = env.get("GITHUB_TOKEN", "").strip()
     if not token:
@@ -173,6 +191,9 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
     # Step 10: optional [delta] section — fail-fast bool-trap validation (AC-V2-001-002/007)
     delta_enabled = _validate_delta(data)
 
+    # Step 11: optional [etag_cache] section — fail-fast bool-trap validation (AC-V2-007-020/021)
+    etag_cache_enabled, etag_cache_path = _validate_etag_cache(data)
+
     return Config(
         watched_repos=watched_repos,
         lookback_days=lookback_days,
@@ -186,4 +207,6 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
         delta_enabled=delta_enabled,
         webhook_url=webhook_url,
         webhook_env=webhook_env,
+        etag_cache_enabled=etag_cache_enabled,
+        etag_cache_path=etag_cache_path,
     )

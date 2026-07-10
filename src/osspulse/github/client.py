@@ -33,6 +33,7 @@ from osspulse.github.errors import (
     RateLimitError,
 )
 from osspulse.models import RawItem
+from osspulse.ports import ConditionalCache, _NullConditionalCache
 
 logger = logging.getLogger(__name__)
 
@@ -90,15 +91,26 @@ class GitHubCollector:
         *,
         client: httpx.Client | None = None,
         sleep=time.sleep,
+        conditional_cache: ConditionalCache | None = None,
     ) -> None:
         """Build the collector.
 
         The token is applied to the httpx client's ``Authorization`` header at construction
         and is not retained on ``self`` (ADR-004). Tests inject ``client`` (with a
         ``MockTransport``) and ``sleep`` so retries never actually wait (ADR-005).
+
+        ``conditional_cache`` injects the ETag conditional-request cache (AC-V2-007-009).
+        Defaults to a ``_NullConditionalCache`` so a collector built without one behaves
+        exactly as today — a cache miss produces the same unconditional fetch as V1.
+        The collector depends on the ``ConditionalCache`` PORT only; it never imports
+        ``JsonFileETagStore`` or the State Store (BR-V2-007-007).
         """
         self._config = config
         self._sleep = sleep
+        # AC-V2-007-009: default null cache → no-op, preserves today's behaviour exactly
+        self._conditional_cache: ConditionalCache = (
+            conditional_cache if conditional_cache is not None else _NullConditionalCache()
+        )
         if client is not None:
             self._client = client
         else:
@@ -132,9 +144,16 @@ class GitHubCollector:
 
         The 403 branch keys ONLY on ``X-RateLimit-Remaining: 0`` → RETRY (secondary rate
         limit); every other 403 is a permanent auth failure → FAIL_FAST (AC-2-008 vs AC-2-020).
+
+        ``304 Not Modified`` → ``OK`` (AC-V2-007-016, ADR-003). The fetch method MUST branch
+        on ``response.status_code == 304`` (not on ``_Action``) because both ``200`` and ``304``
+        map to ``OK``; attempting to iterate a body-less ``304`` would be a bug.
         """
         status = response.status_code
         if status == 200:
+            return _Action.OK
+        if status == 304:
+            # ADR-003: map to OK so _request_with_retry returns; caller branches on raw status
             return _Action.OK
         if status in (404, 410):
             return _Action.SKIP_REPO
@@ -163,13 +182,24 @@ class GitHubCollector:
         return min(computed, retry.backoff_ceiling_seconds)
 
     def _request_with_retry(
-        self, url: str, repo: str, *, json_body: dict | None = None
+        self,
+        url: str,
+        repo: str,
+        *,
+        json_body: dict | None = None,
+        extra_headers: dict | None = None,
     ) -> httpx.Response:
         """The ONLY httpx caller. Bounded retry loop (no infinite loop, AC-2-022).
 
         ``json_body is None`` → ``self._client.get(url)`` (every REST caller, unchanged —
         GET-only invariant preserved for issues/releases). ``json_body is not None`` →
         ``self._client.post(url, json=json_body)`` (GraphQL path only — ADR-002).
+
+        ``extra_headers`` — when present, merged into the GET request headers (AC-V2-007-013).
+        Used to send ``If-None-Match`` on the first page of a REST endpoint. Only valid for
+        GET requests (``json_body is None``); ignored on POST (GraphQL path always uses
+        ``json_body``). The conditional header rides the SAME single retry/``_classify``/
+        backoff path — no duplicated logic (BR-V2-007-011, ADR-003).
 
         The retry loop, ``_classify``, ``_backoff_seconds``, and error messages are
         shared verbatim for both verbs (BR-V2-006-010).
@@ -185,7 +215,7 @@ class GitHubCollector:
             transport_failed = False
             try:
                 if json_body is None:
-                    response = self._client.get(url)
+                    response = self._client.get(url, headers=extra_headers or {})
                 else:
                     response = self._client.post(url, json=json_body)
             except httpx.TransportError:
@@ -433,6 +463,14 @@ class GitHubCollector:
         Prereleases are included unconditionally (AC-V2-003-004).
         Returns ``[]`` for a skipped repo (404/410, AC-V2-003-017).
 
+        Conditional request (AC-V2-007-010..015, ADR-003):
+        - On the FIRST page only: if ``conditional_cache.get("{repo}:releases")`` returns a
+          validator, send ``If-None-Match: <validator>``. Sound because ``/releases`` is
+          newest-first — any new in-window release appears on page 1 and changes its ETag.
+        - ``304`` → return ``[]`` immediately (empty delta, no further pages).
+        - ``200`` + ETag present → ``set("{repo}:releases", etag)`` in-memory.
+        - Pages 2..N → unconditional.
+
         Security: reuses the same authed httpx client, GET-only, TLS on, base_url from
         config only (BR-V2-003-005 / AC-V2-003-015). Token never logged/returned.
         Same retry policy as fetch_items (AC-V2-003-016). No state/LLM access
@@ -442,11 +480,35 @@ class GitHubCollector:
         self._validate_repo(repo)
         cfg = self._config
 
+        # ⚠️ LOAD-BEARING: /releases is returned newest-first (created-desc).
+        # The conditional on page 1 is ONLY sound against this ordering (ADR-003, RISK-002).
         url: str | None = f"{cfg.base_url}/repos/{repo}/releases?per_page={cfg.page_size}"
         items: list[RawItem] = []
+        endpoint_key = f"{repo}:releases"
+        first_page = True  # AC-V2-007-013: conditional header on FIRST page only
 
         while url and len(items) < cfg.max_items_per_repo:
-            response = self._request_with_retry(url, repo)
+            # Build conditional header for the first page (AC-V2-007-010)
+            extra_headers: dict | None = None
+            if first_page:
+                cached_etag = self._conditional_cache.get(endpoint_key)
+                if cached_etag is not None:
+                    extra_headers = {"If-None-Match": cached_etag}
+
+            response = self._request_with_retry(url, repo, extra_headers=extra_headers)
+
+            # Handle first-page 304 — empty delta, no further pages (AC-V2-007-011, ADR-003)
+            if first_page and response.status_code == 304:
+                return []
+
+            # First-page 200: record the fresh ETag in-memory (AC-V2-007-012)
+            if first_page and response.status_code == 200:
+                etag = response.headers.get("ETag")
+                if etag:  # AC-V2-007-014: present-guard — no set() when header absent
+                    self._conditional_cache.set(endpoint_key, etag)
+
+            first_page = False  # pages 2..N are unconditional
+
             if self._classify(response) is _Action.SKIP_REPO:
                 logger.warning(
                     "skipping repo '%s' releases (status %d)", repo, response.status_code
@@ -487,19 +549,57 @@ class GitHubCollector:
         Pure I/O. Paginates created-desc, stops early per-item on the cutoff (not page-level,
         AC-2-005), drops PRs (AC-2-018), caps at ``max_items_per_repo`` with an info
         truncation log (AC-2-006), and returns ``[]`` for a skipped repo (404/410, AC-2-011).
+
+        Conditional request (AC-V2-007-010..015, ADR-003):
+        - On the FIRST page only: if ``conditional_cache.get("{repo}:issues")`` returns a
+          validator, send ``If-None-Match: <validator>``. This is sound because the endpoint
+          is sorted newest-first (``sort=created&direction=desc``) — any new in-window item
+          would change the first-page ETag, so a ``304`` provably means "nothing new".
+        - ``304`` → return ``[]`` immediately (empty delta, no further pages).
+        - ``200`` + ETag present → ``set("{repo}:issues", etag)`` in-memory, paginate as today.
+        - ``200`` + no ETag → record nothing; continue pagination unchanged.
+        - Pages 2..N → unconditional (no ``If-None-Match`` header).
+        - Never persist here — ``set()`` is in-memory only; pipeline calls ``commit()`` later.
         """
         cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
         self._validate_repo(repo)
         cfg = self._config
 
+        # ⚠️ LOAD-BEARING: this endpoint is fetched sort=created&direction=desc (newest-first).
+        # The conditional request on page 1 is ONLY sound against newest-first ordering —
+        # a new in-window item appears on page 1 and changes its ETag; a 304 proves nothing new.
+        # Do NOT reorder this query away from direction=desc (ADR-003, RISK-002).
         url: str | None = (
             f"{cfg.base_url}/repos/{repo}/issues"
             f"?state=all&sort=created&direction=desc&per_page={cfg.page_size}"
         )
         items: list[RawItem] = []
+        endpoint_key = f"{repo}:issues"
+        first_page = True  # AC-V2-007-013: conditional header on FIRST page only
 
         while url and len(items) < cfg.max_items_per_repo:
-            response = self._request_with_retry(url, repo)
+            # Build conditional header for the first page (AC-V2-007-010)
+            extra_headers: dict | None = None
+            if first_page:
+                cached_etag = self._conditional_cache.get(endpoint_key)
+                if cached_etag is not None:
+                    extra_headers = {"If-None-Match": cached_etag}
+
+            response = self._request_with_retry(url, repo, extra_headers=extra_headers)
+
+            # Handle first-page 304 — empty delta, no further pages (AC-V2-007-011, ADR-003)
+            # Branch on raw status_code: both 200 and 304 map to _Action.OK (ADR-003 warning).
+            if first_page and response.status_code == 304:
+                return []  # nothing new for this endpoint; stored ETag unchanged
+
+            # First-page 200: record the fresh ETag in-memory (AC-V2-007-012)
+            if first_page and response.status_code == 200:
+                etag = response.headers.get("ETag")
+                if etag:  # AC-V2-007-014: present-guard — no set() when header absent
+                    self._conditional_cache.set(endpoint_key, etag)
+
+            first_page = False  # pages 2..N are unconditional (AC-V2-007-013)
+
             if self._classify(response) is _Action.SKIP_REPO:
                 logger.warning("skipping repo '%s' (status %d)", repo, response.status_code)
                 return []

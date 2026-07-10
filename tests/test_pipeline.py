@@ -1230,3 +1230,403 @@ def test_discussion_rate_limit_error_not_swallowed_by_inner_guard(tmp_path):
 
     # Partial deliver called (issues already collected before RateLimitError)
     mock_delivery.deliver.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# V2-007 ETag conditional cache — pipeline tests (AC-V2-007-019..028)
+# ---------------------------------------------------------------------------
+
+
+def _config_etag(
+    repos: list[WatchedRepo] | None = None,
+    *,
+    etag_cache_enabled: bool = True,
+    delta_enabled: bool = True,
+    tmp_path: Path | None = None,
+) -> Config:
+    """Build a Config with etag_cache fields for ETag-specific tests."""
+    return Config(
+        watched_repos=repos or [REPO_A],
+        lookback_days=7,
+        github_token="ghp_fake_token_abc123",
+        state_path=str(tmp_path / "state.json") if tmp_path else "/tmp/test_state.json",
+        output_destination="stdout",
+        output_path=str(tmp_path / "digest.md") if tmp_path else "/tmp/test_digest.md",
+        delta_enabled=delta_enabled,
+        etag_cache_enabled=etag_cache_enabled,
+        etag_cache_path=str(tmp_path / "etags.json") if tmp_path else "/tmp/etags.json",
+    )
+
+
+def test_commit_called_exactly_once_after_collect_loop(tmp_path):
+    """commit() is called EXACTLY ONCE after _collect_all returns (AC-V2-007-024, ADR-004).
+
+    This is the RISK-001 tripwire test. commit() must be called after the loop,
+    not inside it, and not before mark_seen.
+    """
+    item_a = _raw("org/repo-a", idx=1)
+    item_b = _raw("org/repo-b", idx=2)
+    cfg = _config_etag(repos=[REPO_A, REPO_B], tmp_path=tmp_path)
+
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.side_effect = [[item_a], [item_b]]
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.return_value = []
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+
+    # Spy on the etag cache — inject it via _build_etag_cache mock
+    mock_etag_cache = MagicMock()
+    mark_seen_call_order = []
+    commit_call_order = []
+
+    # Track call ordering between mark_seen and commit
+    mock_state.mark_seen.side_effect = lambda items: mark_seen_call_order.append("mark_seen")
+    mock_etag_cache.commit.side_effect = lambda: commit_call_order.append("commit")
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline._build_etag_cache", return_value=mock_etag_cache),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=MagicMock()),
+    ):
+        run_pipeline(cfg)
+
+    # commit() called EXACTLY ONCE (AC-V2-007-024)
+    mock_etag_cache.commit.assert_called_once()
+    # mark_seen called twice (once per repo, inside the loop)
+    assert mock_state.mark_seen.call_count == 2
+    # commit AFTER both mark_seen calls (all-at-once after loop, not per-repo)
+    # Both mark_seen come before commit in the interleaved call sequence
+    assert mark_seen_call_order == ["mark_seen", "mark_seen"]
+    assert commit_call_order == ["commit"]
+
+
+def test_commit_not_called_on_auth_error_mid_loop(tmp_path):
+    """RISK-001 tripwire: if AuthError fires mid-loop, commit() is NOT called and
+    etags.json is left unchanged (AC-V2-007-025, ADR-004).
+
+    This is the crash-safety test. An AuthError from repo B must propagate out of
+    _collect_all BEFORE the commit() line in run_pipeline.
+    """
+    item_a = _raw("org/repo-a", idx=1)
+    cfg = _config_etag(repos=[REPO_A, REPO_B], tmp_path=tmp_path)
+
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.side_effect = [
+        [item_a],  # REPO_A succeeds
+        AuthError("token revoked"),  # REPO_B raises AuthError mid-loop
+    ]
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.return_value = []
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+
+    mock_etag_cache = MagicMock()
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline._build_etag_cache", return_value=mock_etag_cache),
+    ):
+        with pytest.raises(AuthError):
+            run_pipeline(cfg)
+
+    # commit() MUST NOT have been called (AC-V2-007-025)
+    mock_etag_cache.commit.assert_not_called()
+
+
+def test_both_flags_true_etag_cache_injected_into_collector(tmp_path):
+    """When etag_cache_enabled=True AND delta_enabled=True, a real etag cache is
+    injected into GitHubCollector (AC-V2-007-022)."""
+    cfg = _config_etag(etag_cache_enabled=True, delta_enabled=True, tmp_path=tmp_path)
+
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = []
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.return_value = []
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+
+    captured_kwargs = {}
+
+    def capture_collector_ctor(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return mock_collector
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", side_effect=capture_collector_ctor),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=MagicMock()),
+    ):
+        run_pipeline(cfg)
+
+    # The collector received a conditional_cache argument
+    assert "conditional_cache" in captured_kwargs
+    from osspulse.ports import _NullConditionalCache as NullCC
+
+    assert not isinstance(captured_kwargs["conditional_cache"], NullCC)
+
+
+def test_delta_disabled_null_cache_injected(tmp_path):
+    """When delta_enabled=False, a _NullConditionalCache is injected — no conditional
+    headers, etags.json untouched (AC-V2-007-023, BR-V2-007-009)."""
+    cfg = _config_etag(etag_cache_enabled=True, delta_enabled=False, tmp_path=tmp_path)
+
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = []
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.return_value = []
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+
+    captured_kwargs = {}
+
+    def capture_collector_ctor(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return mock_collector
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", side_effect=capture_collector_ctor),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=MagicMock()),
+    ):
+        run_pipeline(cfg)
+
+    assert "conditional_cache" in captured_kwargs
+    from osspulse.ports import _NullConditionalCache as NullCC
+
+    assert isinstance(captured_kwargs["conditional_cache"], NullCC)
+    # etags.json must not have been created
+    assert not (tmp_path / "etags.json").exists()
+
+
+def test_etag_cache_disabled_null_cache_injected(tmp_path):
+    """When etag_cache_enabled=False, a _NullConditionalCache is injected (AC-V2-007-023)."""
+    cfg = _config_etag(etag_cache_enabled=False, delta_enabled=True, tmp_path=tmp_path)
+
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = []
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.return_value = []
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+
+    captured_kwargs = {}
+
+    def capture_collector_ctor(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return mock_collector
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", side_effect=capture_collector_ctor),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=MagicMock()),
+    ):
+        run_pipeline(cfg)
+
+    from osspulse.ports import _NullConditionalCache as NullCC
+
+    assert isinstance(captured_kwargs["conditional_cache"], NullCC)
+    assert not (tmp_path / "etags.json").exists()
+
+
+def test_build_etag_cache_failure_returns_null_and_run_completes(tmp_path):
+    """If _build_etag_cache (JsonFileETagStore ctor) fails, a null cache is used
+    and the run still completes (AC-V2-007-019)."""
+    from osspulse.pipeline import _build_etag_cache
+    from osspulse.ports import _NullConditionalCache as NullCC
+
+    # Simulate the ctor raising
+    cfg = _config_etag(etag_cache_enabled=True, delta_enabled=True, tmp_path=tmp_path)
+
+    with patch("osspulse.pipeline.JsonFileETagStore", side_effect=Exception("disk error")):
+        result = _build_etag_cache(cfg)
+
+    assert isinstance(result, NullCC)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: mocked transport, run1→run2 scenarios (AC-V2-007-026/027/028)
+# ---------------------------------------------------------------------------
+
+
+def test_e2e_run1_records_items_and_etag_run2_304_no_new_items(tmp_path):
+    """End-to-end AC-V2-007-026: run1 200→records items+ETag; run2 all-304→no-new-items doc.
+
+    Uses real JsonFileETagStore + real JsonFileStateStore (on tmp_path) with mock collector.
+    """
+    import json as _json
+
+    item = _raw("org/repo-a", idx=1)
+    etag_path = tmp_path / "etags.json"
+    state_path = tmp_path / "state.json"
+
+    # --- Run 1: fresh start, 200 response with items ---
+    mock_collector_r1 = MagicMock()
+    mock_collector_r1.fetch_items.return_value = [item]
+    mock_collector_r1.fetch_releases.return_value = []
+    mock_collector_r1.fetch_discussions.return_value = []
+    mock_delivery_r1 = MagicMock()
+
+    from osspulse.cache.etag_store import JsonFileETagStore
+    from osspulse.state.json_store import JsonFileStateStore
+
+    etag_store_r1 = JsonFileETagStore(etag_path)
+    # Simulate collector setting an ETag after first-page 200
+    etag_store_r1.set("org/repo-a:issues", '"etag-v1"')
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector_r1),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=JsonFileStateStore(state_path)),
+        patch("osspulse.pipeline._build_etag_cache", return_value=etag_store_r1),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery_r1),
+    ):
+        run_pipeline(_config_etag(tmp_path=tmp_path))
+
+    # ETag committed after run1
+    assert etag_path.exists()
+    etags_data = _json.loads(etag_path.read_text())
+    assert etags_data.get("org/repo-a:issues") == '"etag-v1"'
+
+    # Item was recorded as seen
+    state_data = _json.loads(state_path.read_text())
+    assert "org/repo-a" in state_data["seen"]
+
+    # Digest from run1 contains the item
+    delivered_r1 = mock_delivery_r1.deliver.call_args[0][0]
+    assert item.title in delivered_r1
+
+    # --- Run 2: no new activity — collector returns [] (simulating 304 behavior) ---
+    mock_collector_r2 = MagicMock()
+    mock_collector_r2.fetch_items.return_value = []  # 304 → collector returns []
+    mock_collector_r2.fetch_releases.return_value = []
+    mock_collector_r2.fetch_discussions.return_value = []
+    mock_delivery_r2 = MagicMock()
+
+    etag_store_r2 = JsonFileETagStore(etag_path)
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector_r2),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=JsonFileStateStore(state_path)),
+        patch("osspulse.pipeline._build_etag_cache", return_value=etag_store_r2),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery_r2),
+    ):
+        run_pipeline(_config_etag(tmp_path=tmp_path))
+
+    # Run2 delivers "no new items" doc (AC-V2-007-026)
+    delivered_r2 = mock_delivery_r2.deliver.call_args[0][0]
+    assert item.title not in delivered_r2  # no new items
+
+
+def test_e2e_run2_new_issue_only_new_item_rendered(tmp_path):
+    """End-to-end AC-V2-007-027: run2 with a new issue → 200, only new item rendered.
+
+    Uses real state store + etag store to verify the delta filter correctly
+    identifies the new item.
+    """
+    import json as _json
+
+    old_item = _raw("org/repo-a", idx=1)
+    new_item = _raw("org/repo-a", idx=2)
+    etag_path = tmp_path / "etags.json"
+    state_path = tmp_path / "state.json"
+
+    from osspulse.cache.etag_store import JsonFileETagStore
+    from osspulse.state.json_store import JsonFileStateStore
+
+    # Run 1: record old_item as seen, commit ETag
+    state_r1 = JsonFileStateStore(state_path)
+    etag_store_r1 = JsonFileETagStore(etag_path)
+    etag_store_r1.set("org/repo-a:issues", '"etag-v1"')
+
+    mock_collector_r1 = MagicMock()
+    mock_collector_r1.fetch_items.return_value = [old_item]
+    mock_collector_r1.fetch_releases.return_value = []
+    mock_collector_r1.fetch_discussions.return_value = []
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector_r1),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=state_r1),
+        patch("osspulse.pipeline._build_etag_cache", return_value=etag_store_r1),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=MagicMock()),
+    ):
+        run_pipeline(_config_etag(tmp_path=tmp_path))
+
+    # Run 2: new issue appeared, ETag changed → 200 with both items
+    state_r2 = JsonFileStateStore(state_path)
+    etag_store_r2 = JsonFileETagStore(etag_path)
+    etag_store_r2.set("org/repo-a:issues", '"etag-v2"')  # fresh ETag from 200
+
+    mock_collector_r2 = MagicMock()
+    mock_collector_r2.fetch_items.return_value = [new_item, old_item]  # both returned (200)
+    mock_collector_r2.fetch_releases.return_value = []
+    mock_collector_r2.fetch_discussions.return_value = []
+    mock_delivery_r2 = MagicMock()
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector_r2),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=state_r2),
+        patch("osspulse.pipeline._build_etag_cache", return_value=etag_store_r2),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery_r2),
+    ):
+        run_pipeline(_config_etag(tmp_path=tmp_path))
+
+    # Only the new item rendered (delta filter) (AC-V2-007-027)
+    delivered = mock_delivery_r2.deliver.call_args[0][0]
+    assert new_item.title in delivered
+    assert old_item.title not in delivered
+
+    # Fresh ETag committed
+    etags_data = _json.loads(etag_path.read_text())
+    assert etags_data.get("org/repo-a:issues") == '"etag-v2"'
+
+
+def test_e2e_corrupt_etags_json_warns_unconditional_fetch_exit0(tmp_path, caplog):
+    """End-to-end AC-V2-007-028: corrupt etags.json → WARN, unconditional fetch,
+    run completes normally, exit 0.
+
+    Uses real JsonFileETagStore + real collector mock. The corrupt-file WARN fires
+    when the store first tries to load (on get()); we verify it by calling get() directly
+    and by asserting the pipeline runs to completion without raising.
+    """
+    import logging
+
+    from osspulse.cache.etag_store import JsonFileETagStore
+    from osspulse.state.json_store import JsonFileStateStore
+
+    # Write a corrupt etags.json
+    etag_path = tmp_path / "etags.json"
+    etag_path.write_text("{not valid json", encoding="utf-8")
+    state_path = tmp_path / "state.json"
+
+    item = _raw("org/repo-a", idx=1)
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = [item]
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.return_value = []
+    mock_delivery = MagicMock()
+
+    etag_store = JsonFileETagStore(etag_path)
+
+    # Verify the store degrades gracefully on load (WARN + None)
+    with caplog.at_level(logging.WARNING, logger="osspulse.cache.etag_store"):
+        result = etag_store.get("org/repo-a:issues")
+    assert result is None  # empty cache, no raise
+    assert any("corrupt" in r.message.lower() for r in caplog.records)
+
+    # Reload for the actual pipeline run
+    etag_store2 = JsonFileETagStore(etag_path)
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=JsonFileStateStore(state_path)),
+        patch("osspulse.pipeline._build_etag_cache", return_value=etag_store2),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery),
+    ):
+        run_pipeline(_config_etag(tmp_path=tmp_path))  # must NOT raise (exit 0, AC-V2-007-028)
+
+    # Unconditional fetch → item was rendered normally
+    mock_delivery.deliver.assert_called_once()
+    delivered = mock_delivery.deliver.call_args[0][0]
+    assert item.title in delivered

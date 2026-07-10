@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import litellm
 
+from osspulse.cache.etag_store import JsonFileETagStore
 from osspulse.cache.redis_cache import RedisSummaryCache
 from osspulse.delivery.discord_delivery import DiscordDelivery
 from osspulse.delivery.file_delivery import FileDelivery
@@ -25,13 +26,14 @@ from osspulse.github.errors import (
     RateLimitError,
 )
 from osspulse.models import Config, RawItem, SummarizedItem
+from osspulse.ports import _NullConditionalCache
 from osspulse.render.renderer import render
 from osspulse.state.json_store import JsonFileStateStore
 from osspulse.summarizer.client import LiteLLMSummarizer
 from osspulse.summarizer.config import SummarizerConfig
 
 if TYPE_CHECKING:
-    from osspulse.ports import SummaryCache
+    from osspulse.ports import ConditionalCache, SummaryCache
 
 # ---------------------------------------------------------------------------
 # Suppress LiteLLM's verbose stderr banners (Give Feedback URL, LiteLLM.Info
@@ -108,6 +110,30 @@ def _build_cache() -> SummaryCache:
     except Exception as exc:  # noqa: BLE001 — intentional: any Redis failure → null cache
         logger.warning("Redis cache unavailable (%s); running without cache", type(exc).__name__)
         return _NullCache()
+
+
+def _build_etag_cache(config: Config) -> ConditionalCache:
+    """Construct a JsonFileETagStore best-effort, gated by two flags (AC-V2-007-019/022/023).
+
+    Gate: ``etag_cache_enabled AND delta_enabled`` (ADR-002).
+    - If either flag is False → return ``_NullConditionalCache`` immediately (no file
+      written, no conditional headers sent — AC-V2-007-023).
+    - If both True → construct ``JsonFileETagStore(config.etag_cache_path)``; any
+      construction/load error → WARN + return ``_NullConditionalCache`` (AC-V2-007-019).
+    Mirrors ``_build_cache`` for the Redis summary cache.
+    """
+    if not (config.etag_cache_enabled and config.delta_enabled):
+        # AC-V2-007-023: either flag False → unconditional fetches; etags.json untouched
+        return _NullConditionalCache()
+
+    try:
+        return JsonFileETagStore(config.etag_cache_path)
+    except Exception as exc:  # noqa: BLE001 — intentional: any failure → null cache
+        logger.warning(
+            "ETag cache unavailable (%s); running without conditional requests",
+            type(exc).__name__,
+        )
+        return _NullConditionalCache()
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +309,9 @@ def _summarize(config: Config, all_items: list[RawItem]) -> list[SummarizedItem]
         provider=config.llm_provider,
         api_key=config.llm_api_key,
         cache=_build_cache(),
-        config=SummarizerConfig(model=config.llm_model or _model_for(config.llm_provider)),  # ADR-002: no default
+        config=SummarizerConfig(
+            model=config.llm_model or _model_for(config.llm_provider)  # ADR-002: no default
+        ),
     )
     # ONE batch call — not per-item (BR-7-009, AC-7-007)
     return summarizer.summarize_items(all_items)
@@ -305,11 +333,23 @@ def run_pipeline(config: Config) -> None:
         All other flows → return normally → exit 0
     """
     # --- Construct adapters (token/key to ctor only) ---
-    collector = GitHubCollector(config.github_token)
+    conditional_cache = _build_etag_cache(config)  # AC-V2-007-019: best-effort, two-flag gate
+    collector = GitHubCollector(config.github_token, conditional_cache=conditional_cache)
     state = JsonFileStateStore(config.state_path)
 
     # --- Collect (per-repo isolation) ---
     all_items, stats = _collect_all(config, collector, state)
+
+    # ⚠️  CRASH-SAFETY CRITICAL (ADR-004, AC-V2-007-024/025):
+    # commit() is called EXACTLY ONCE here, AFTER _collect_all returns.
+    # _collect_all calls mark_seen() per-repo INSIDE the loop, so all fetched items are
+    # durably recorded before we commit the ETags.
+    # A fatal AuthError or StateError propagates out of _collect_all BEFORE this line,
+    # leaving etags.json UNCHANGED so the next run re-fetches (no lost items).
+    # A terminal RateLimitError is caught INSIDE _collect_all (break+partial), so commit()
+    # runs for repos that completed — correct, because their items were mark_seen-recorded.
+    # DO NOT: wrap in try/except, move earlier, or call per-repo. (See design.md ADR-004.)
+    conditional_cache.commit()  # once, unguarded, after the loop — CRASH-SAFETY-CRITICAL
 
     # --- Summarize (LLM or no-LLM) ---
     summarized = _summarize(config, all_items)

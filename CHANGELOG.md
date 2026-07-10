@@ -6,6 +6,41 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.10.0] — 2026-07-10
+
+### Added (v2-007-cache-etag)
+
+- **GitHub HTTP ETag conditional-request caching**: the REST collector now sends
+  `If-None-Match` on the first page of every endpoint (issues, releases). A `304 Not
+  Modified` response is treated as an empty delta for that endpoint — no further pages
+  are fetched and no rate-limit quota is consumed (AC-V2-007-001..005).
+- **`ConditionalCache` port** (`ports.py`): `get(key) → str | None`, `set(key, validator)`,
+  `commit()` — in-memory during the fetch loop, durable on `commit()`. Key format
+  `{repo}:{endpoint}`. `_NullConditionalCache` is the no-op default (AC-V2-007-006..009,
+  AC-2-015 port-boundary enforcement).
+- **`JsonFileETagStore` adapter** (`src/osspulse/cache/etag_store.py`): persists ETags to
+  `.osspulse/etags.json` using atomic temp-then-rename. Best-effort corrupt-tolerant —
+  an unreadable or malformed file logs a WARNING and returns an empty cache, never raising
+  `StateError` (inverted from `JsonFileStateStore` semantics per ADR-001,
+  AC-V2-007-010..017).
+- **First-page-only conditional requests**: `If-None-Match` is sent only on page 1.
+  Pages 2..N are fetched unconditionally, preserving correctness for partial-cache
+  scenarios (AC-V2-007-018..020, ADR-003).
+- **RISK-001 crash-safety**: `commit()` is called exactly once, after `mark_seen`, outside
+  the per-repo collection loop. A mid-loop `AuthError` or `RateLimitError` propagates
+  before `commit()` — no partial ETag state is persisted for a failed run
+  (AC-V2-007-021..025, ADR-004).
+- **Pipeline E2E integration** (AC-V2-007-026..028): three end-to-end pipeline tests use
+  real `JsonFileStateStore` + real `JsonFileETagStore` on `tmp_path` to verify the
+  full conditional-cache flow without mocking the file layer.
+- **Config opt-in** (`config.toml` `[etag_cache]` section): `enabled = true`,
+  `path = ".osspulse/etags.json"`. Guarded by two-flag gate: conditional requests active
+  only when `etag_cache_enabled AND delta_enabled` (AC-V2-007-029..034).
+- **59 new tests** — 609 total; 97% coverage on touched modules
+  (`etag_store` 92%, `github/client` 99%, `pipeline` 93%, `config` 98%).
+
+---
+
 ## [0.9.0] — 2026-07-09
 
 ### Added (v2-006-discussions)

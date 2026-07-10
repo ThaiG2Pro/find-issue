@@ -170,6 +170,7 @@ Tiêu chí "xong V1": chạy `osspulse run` trên 3–5 repo thật → ra một
   rộng thêm kênh **Slack webhook** và **Email (SMTP)**. _Nguồn: các option bị loại khi
   chốt V2-005 (CLAR-1 chọn Discord trước, CLAR-2 chọn single-destination) — để dành vì
   V2 ưu tiên "làm 1 kênh cho chạy được" trước khi orchestrate nhiều kênh._
+- **LLM rate-limit throttle**: token-aware throttle giữa các LLM calls dựa trên `usage.total_tokens` từ response (đếm tokens trong 60s window, sleep khi gần 6000 tokens/min của Groq free tier) + exponential backoff khi nhận `RateLimitError` (retry với `Retry-After` header thay vì skip-and-mark-seen). Hiện tại pipeline gọi LLM tuần tự không có delay → hit 6000 tokens/min với ~12 items đồng thời. _Nguồn: thực tế V2 test, chuyển từ V4 vì impact cao với free tier users._
 
 ### V4 — "Vận hành bền" (reliability, chỉ làm khi có nhu cầu thật)
 - **Push có retry + backoff**: khi kênh push trả lỗi transient (HTTP 5xx, hoặc 429 kèm
@@ -180,7 +181,6 @@ Tiêu chí "xong V1": chạy `osspulse run` trên 3–5 repo thật → ra một
   plain Markdown, tận dụng giới hạn 4096/6000 ký tự lớn hơn của embed. _Nguồn: option bị
   loại ở CLAR-4 (V2 chọn plain content cho đơn giản, tránh embed schema)._
 - **Redis as a service (Upstash)**: thay Redis local bằng Upstash Redis (free tier, HTTP-based) để LLM summary cache hoạt động được trên GitHub Actions và môi trường stateless. _Nguồn: Redis local không khả dụng trên CI — hiện tại pipeline graceful-degrade sang no-cache, nhưng mỗi run đều tốn Groq quota._
-- **Rate limit retry với defer**: khi LLM hit RateLimitError, defer item sang lần chạy tiếp theo thay vì skip-and-mark-seen như hiện tại. _Nguồn: V2 chủ đích skip để đơn giản (AC-4-009/010), nhưng thực tế Groq free tier 6000 tokens/min khiến các item cuối bị drop vĩnh viễn._
 
 ### Out of Scope (không làm, cố ý)
 - ❌ Scan/crawl toàn bộ GitHub hoặc "mọi repo có GFI".

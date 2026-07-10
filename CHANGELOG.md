@@ -6,6 +6,44 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.12.0] — 2026-07-11
+
+### Added (v3-github-actions — V3-002)
+
+- **GitHub Actions daily digest workflow** (`.github/workflows/osspulse.yml`): runs
+  `osspulse run` on a cron schedule at 08:00 UTC+7 (`0 1 * * *`) and on
+  `workflow_dispatch` (AC-V3-002-001, AC-V3-002-002).
+- **State persistence via git commit-back**: after each run the workflow force-adds
+  `.osspulse/state.json` (gitignored) and commits it back with
+  `[skip ci]` in the message so the next stateless runner is delta-aware and the
+  push does not re-trigger the workflow (AC-V3-002-003, AC-V3-002-005, AC-V3-002-006).
+- **Clean-tree guard**: `git diff --cached --quiet || (git commit … && git push)`
+  — no empty commit and no red job when state is unchanged (AC-V3-002-004).
+- **Concurrency guard**: `concurrency.group: osspulse-digest` with
+  `cancel-in-progress: false` prevents overlapping digest runs (AC-V3-002-007).
+- **Install from source**: workflow runs `uv pip install --system -e .` so the
+  latest committed source is used, not a PyPI release (AC-V3-002-008).
+- **`config.toml.ci.example`**: template operators copy to `config.toml` and
+  `git add -f` before the first run; keeps repo secrets out of version control
+  (AC-V3-002-009).
+- **README §Running on GitHub Actions**: operator setup guide — secrets
+  (`GITHUB_TOKEN`, `LLM_API_KEY`, `DISCORD_WEBHOOK_URL`), `config.toml` first-run
+  steps, and `workflow_dispatch` smoke-test instructions (AC-V3-002-010).
+- **`permissions: contents: write`** scoped to the job only — minimum required for
+  the commit-back push (AC-V3-002-011).
+
+### Bug fixes
+
+- **BUG-1 (bash precedence)**: fixed spurious `git push` on clean-tree runs caused
+  by left-to-right `||`/`&&` associativity. Changed
+  `… || git commit … && git push` → `… || (git commit … && git push)` so push
+  only runs when a new commit is created.
+
+### No breaking changes
+
+- No changes to `src/`. All existing CLI behaviour, config schema, and pipeline
+  stages are unchanged.
+
 ## [0.11.0] — 2026-07-11
 
 ### Added (v3-llm-throttle — V3-001)

@@ -291,3 +291,49 @@ uv run pytest tests/test_summarizer_client.py -v
 ```
 
 Coverage gate: >= 80% lines (CI hard-fails below this threshold).
+
+---
+
+## Running on GitHub Actions
+
+OSS Pulse ships a ready-to-use daily workflow at `.github/workflows/osspulse.yml`. It runs at
+08:00 ICT (01:00 UTC) every day, installs the tool from source, runs `osspulse run`, and
+commits `.osspulse/state.json` back to the repo so the next run starts delta-aware.
+
+### Required GitHub repo Secrets
+
+Set these in your repo → **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `LLM_API_KEY` | Yes (unless Ollama) | API key for your configured LLM provider (OpenAI, Anthropic, etc.). |
+| `DISCORD_WEBHOOK_URL` | Only when `destination = "discord"` | Discord webhook URL (channel ⚙️ → Integrations → Webhooks → Copy URL). |
+
+`GITHUB_TOKEN` is **automatically provided** by GitHub Actions — no setup needed.
+
+### Steps to enable
+
+1. **Commit a `config.toml`** at the repo root (copy from `config.toml.ci.example`). This file
+   must contain no secret values — only env-var names (e.g. `api_key_env = "LLM_API_KEY"`).
+   Even though `config.toml` is listed in `.gitignore` for local dev, you must commit this CI
+   copy via `git add -f config.toml` so the runner has it.
+
+2. **Add the required secrets** listed above in your GitHub repo settings.
+
+3. **Push the workflow** (`.github/workflows/osspulse.yml`) to your default branch. GitHub
+   Actions will pick it up on the next scheduled tick or you can trigger it immediately with
+   **Actions → OSS Pulse Daily Digest → Run workflow**.
+
+4. After the first successful run, the workflow commits `.osspulse/state.json` back with a
+   `[skip ci]` message. This is intentional — it records which items were seen so subsequent
+   runs skip already-processed issues.
+
+### Design notes
+
+- **No `src/` changes**: the workflow file is pure CI config; all application logic lives in `src/`.
+- **State persistence**: `.osspulse/` is gitignored locally but the CI step uses `git add -f`
+  to stage only `state.json`. Your local `.gitignore` is unchanged.
+- **No workflow loop**: the persistence commit uses `[skip ci]` and is pushed with the
+  default `GITHUB_TOKEN`, which does not re-trigger `on: schedule` or `on: push`.
+- **Concurrency**: `concurrency: group: osspulse-digest` with `cancel-in-progress: false`
+  serializes overlapping manual + scheduled runs so two runners never race the state file.

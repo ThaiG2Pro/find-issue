@@ -272,7 +272,7 @@ def _summarize(config: Config, all_items: list[RawItem]) -> list[SummarizedItem]
         provider=config.llm_provider,
         api_key=config.llm_api_key,
         cache=_build_cache(),
-        config=SummarizerConfig(model=_model_for(config.llm_provider)),  # ADR-002: no default
+        config=SummarizerConfig(model=config.llm_model or _model_for(config.llm_provider)),  # ADR-002: no default
     )
     # ONE batch call — not per-item (BR-7-009, AC-7-007)
     return summarizer.summarize_items(all_items)

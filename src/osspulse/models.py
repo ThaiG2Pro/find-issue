@@ -18,6 +18,7 @@ class Config:
     github_token: str = ""
     llm_provider: str | None = None
     llm_api_key: str | None = None
+    llm_model: str | None = None
     state_path: str = "./.osspulse/state.json"  # AC-3-013
     output_destination: str = "file"  # AC-6-010, BR-6-007
     output_path: str = "./digest.md"  # AC-6-010, BR-6-007

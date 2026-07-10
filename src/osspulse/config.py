@@ -67,18 +67,19 @@ def _resolve_token(env: Mapping[str, str]) -> str:
     return token
 
 
-def _resolve_llm(data: dict, env: Mapping[str, str]) -> tuple[str | None, str | None]:
+def _resolve_llm(data: dict, env: Mapping[str, str]) -> tuple[str | None, str | None, str | None]:
     llm_section = data.get("llm", {})
     provider = llm_section.get("provider")
+    model = llm_section.get("model") or None
     if not provider:
-        return None, None
+        return None, None, None
     if provider.lower() != "ollama":
         key_var = llm_section.get("api_key_env", "LLM_API_KEY")
         api_key = env.get(key_var, "").strip()
         if not api_key:
             raise ConfigError(f"LLM provider '{provider}' requires API key")
-        return provider, api_key
-    return provider, None
+        return provider, api_key, model
+    return provider, None, model
 
 
 def _resolve_discord_url(output_section: dict, env: Mapping[str, str]) -> tuple[str, str]:
@@ -144,7 +145,7 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
     github_token = _resolve_token(env)
 
     # Step 7: LLM
-    llm_provider, llm_api_key = _resolve_llm(data, env)
+    llm_provider, llm_api_key, llm_model = _resolve_llm(data, env)
 
     # Step 8: optional [state] section
     state_section = data.get("state", {})
@@ -178,6 +179,7 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
         github_token=github_token,
         llm_provider=llm_provider,
         llm_api_key=llm_api_key,
+        llm_model=llm_model,
         state_path=state_path,
         output_destination=output_destination,
         output_path=output_path,

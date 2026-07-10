@@ -1,0 +1,17 @@
+[watchlist]
+repos = [
+    "getlago/lago", "vercel/next.js"
+]
+lookback_days = 1
+
+[llm]
+provider = "groq"
+model = "groq/llama-3.1-8b-instant"
+api_key_env = "LLM_API_KEY"
+
+[state]
+state_path = "./.osspulse/state.json"
+
+[output]
+#destination = "discord"
+destination = "stdout"

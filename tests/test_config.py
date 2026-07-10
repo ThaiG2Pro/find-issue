@@ -398,9 +398,7 @@ def test_etag_cache_custom_path(tmp_path):
 
 def test_etag_cache_enabled_non_bool_string_raises(tmp_path):
     """[etag_cache] enabled = "yes" → ConfigError (bool-trap guard, AC-V2-007-021)."""
-    p = write_toml(
-        tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = "yes"\n'
-    )
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = "yes"\n')
     with pytest.raises(ConfigError, match="etag_cache.enabled must be a boolean"):
         load_config(p, ENV)
 
@@ -416,9 +414,7 @@ def test_etag_cache_enabled_int_raises(tmp_path):
 def test_etag_cache_config_error_before_pipeline(tmp_path):
     """Non-boolean etag_cache.enabled raises ConfigError at load time, not inside the pipeline
     (AC-V2-007-021 — fail-fast)."""
-    p = write_toml(
-        tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = "true"\n'
-    )
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = "true"\n')
     # Confirm exception is raised at load_config call, before any pipeline code runs
     with pytest.raises(ConfigError):
         load_config(p, ENV)

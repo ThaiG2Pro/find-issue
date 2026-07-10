@@ -18,9 +18,15 @@ class Config:
     github_token: str = ""
     llm_provider: str | None = None
     llm_api_key: str | None = None
+    llm_model: str | None = None
     state_path: str = "./.osspulse/state.json"  # AC-3-013
     output_destination: str = "file"  # AC-6-010, BR-6-007
     output_path: str = "./digest.md"  # AC-6-010, BR-6-007
+    delta_enabled: bool = True  # AC-V2-001-002
+    webhook_url: str | None = None  # AC-V2-005-012, BR-V2-005-005; resolved from env at load
+    webhook_env: str = "DISCORD_WEBHOOK_URL"  # AC-V2-005-012; name of the env var
+    etag_cache_enabled: bool = True  # AC-V2-007-020; see [etag_cache] section in config.toml
+    etag_cache_path: str = "./.osspulse/etags.json"  # AC-V2-007-020
 
 
 @dataclass(frozen=True)

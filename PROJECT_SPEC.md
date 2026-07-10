@@ -161,8 +161,26 @@ Tiêu chí "xong V1": chạy `osspulse run` trên 3–5 repo thật → ra một
 - UI nhẹ để quản lý watchlist (web đơn giản hoặc TUI).
 - Lọc/đánh dấu issue theo gợi ý (vd có label `good first issue`, chưa có người
   nhận) — *hiển thị để hiểu, không phải để đua tốc độ*.
+- **GitHub Actions workflow**: file `.github/workflows/osspulse.yml` chạy `osspulse run` theo cron, tự động persist `state.json` bằng `git commit` sau mỗi run (`[skip ci]`). Giải quyết bài toán stateless CI — không có workflow này, pipeline không thể deploy "không cần mở laptop". _Nguồn: gap phát hiện khi test V2 trên CI._
+- **State persistence strategy cho CI/CD**: spec rõ 3 option (git-commit / Actions cache / remote storage) và chọn mặc định. _Nguồn: state.json hiện chỉ thiết kế cho local cron, chưa cover GitHub Actions use case._
 - (Thử nghiệm) chỉ số "repo này có welcome contributor mới không": thời gian phản
   hồi PR, tỉ lệ PR newcomer được merge.
+- **Push đa kênh (multi-channel delivery)**: cho phép gửi digest tới nhiều đích cùng
+  lúc (vd vừa ghi file vừa đẩy Discord), thay vì chọn 1 đích/lần chạy như V2. Kèm mở
+  rộng thêm kênh **Slack webhook** và **Email (SMTP)**. _Nguồn: các option bị loại khi
+  chốt V2-005 (CLAR-1 chọn Discord trước, CLAR-2 chọn single-destination) — để dành vì
+  V2 ưu tiên "làm 1 kênh cho chạy được" trước khi orchestrate nhiều kênh._
+- **LLM rate-limit throttle**: token-aware throttle giữa các LLM calls dựa trên `usage.total_tokens` từ response (đếm tokens trong 60s window, sleep khi gần 6000 tokens/min của Groq free tier) + exponential backoff khi nhận `RateLimitError` (retry với `Retry-After` header thay vì skip-and-mark-seen). Hiện tại pipeline gọi LLM tuần tự không có delay → hit 6000 tokens/min với ~12 items đồng thời. _Nguồn: thực tế V2 test, chuyển từ V4 vì impact cao với free tier users._
+
+### V4 — "Vận hành bền" (reliability, chỉ làm khi có nhu cầu thật)
+- **Push có retry + backoff**: khi kênh push trả lỗi transient (HTTP 5xx, hoặc 429 kèm
+  `Retry-After`), thử lại vài lần với exponential backoff thay vì fail ngay. _Nguồn:
+  option bị loại ở CLAR-3 (V2 chọn fail-fast fatal cho đơn giản) — nâng cấp độ bền khi
+  thực tế gặp nhiều lỗi tạm thời._
+- **Discord rich embeds**: render digest thành embed (màu, field, tiêu đề repo) thay vì
+  plain Markdown, tận dụng giới hạn 4096/6000 ký tự lớn hơn của embed. _Nguồn: option bị
+  loại ở CLAR-4 (V2 chọn plain content cho đơn giản, tránh embed schema)._
+- **Redis as a service (Upstash)**: thay Redis local bằng Upstash Redis (free tier, HTTP-based) để LLM summary cache hoạt động được trên GitHub Actions và môi trường stateless. _Nguồn: Redis local không khả dụng trên CI — hiện tại pipeline graceful-degrade sang no-cache, nhưng mỗi run đều tốn Groq quota._
 
 ### Out of Scope (không làm, cố ý)
 - ❌ Scan/crawl toàn bộ GitHub hoặc "mọi repo có GFI".

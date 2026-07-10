@@ -1,0 +1,32 @@
+# config.toml.ci.example — minimal CI/GitHub Actions config
+# Copy to config.toml before committing; contains NO secret values.
+# Secrets are resolved at run time from GitHub repo Secrets via ${{ secrets.* }}.
+
+[watchlist]
+repos = [
+    "facebook/react",
+    "python/cpython",
+]
+lookback_days = 7
+
+[llm]
+# LiteLLM provider string (e.g. "openai", "anthropic", "ollama").
+provider = "openai"
+model = "openai/gpt-4o-mini"
+# Name of the env var that holds the API key — the value itself is never committed.
+api_key_env = "LLM_API_KEY"
+
+[state]
+# Path used by the runner; .osspulse/ is gitignored but state.json is force-added by CI.
+state_path = "./.osspulse/state.json"
+
+[output]
+# "stdout" — runner prints the digest to the job log (zero file I/O, easiest on CI).
+# "discord" — POST to webhook; requires DISCORD_WEBHOOK_URL secret.
+destination = "stdout"
+# Uncomment to deliver to Discord instead:
+# destination = "discord"
+# webhook_env = "DISCORD_WEBHOOK_URL"
+
+[delta]
+enabled = true

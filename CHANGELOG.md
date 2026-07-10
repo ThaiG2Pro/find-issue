@@ -6,6 +6,196 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.12.0] — 2026-07-11
+
+### Added (v3-github-actions — V3-002)
+
+- **GitHub Actions daily digest workflow** (`.github/workflows/osspulse.yml`): runs
+  `osspulse run` on a cron schedule at 08:00 UTC+7 (`0 1 * * *`) and on
+  `workflow_dispatch` (AC-V3-002-001, AC-V3-002-002).
+- **State persistence via git commit-back**: after each run the workflow force-adds
+  `.osspulse/state.json` (gitignored) and commits it back with
+  `[skip ci]` in the message so the next stateless runner is delta-aware and the
+  push does not re-trigger the workflow (AC-V3-002-003, AC-V3-002-005, AC-V3-002-006).
+- **Clean-tree guard**: `git diff --cached --quiet || (git commit … && git push)`
+  — no empty commit and no red job when state is unchanged (AC-V3-002-004).
+- **Concurrency guard**: `concurrency.group: osspulse-digest` with
+  `cancel-in-progress: false` prevents overlapping digest runs (AC-V3-002-007).
+- **Install from source**: workflow runs `uv pip install --system -e .` so the
+  latest committed source is used, not a PyPI release (AC-V3-002-008).
+- **`config.toml.ci.example`**: template operators copy to `config.toml` and
+  `git add -f` before the first run; keeps repo secrets out of version control
+  (AC-V3-002-009).
+- **README §Running on GitHub Actions**: operator setup guide — secrets
+  (`GITHUB_TOKEN`, `LLM_API_KEY`, `DISCORD_WEBHOOK_URL`), `config.toml` first-run
+  steps, and `workflow_dispatch` smoke-test instructions (AC-V3-002-010).
+- **`permissions: contents: write`** scoped to the job only — minimum required for
+  the commit-back push (AC-V3-002-011).
+
+### Bug fixes
+
+- **BUG-1 (bash precedence)**: fixed spurious `git push` on clean-tree runs caused
+  by left-to-right `||`/`&&` associativity. Changed
+  `… || git commit … && git push` → `… || (git commit … && git push)` so push
+  only runs when a new commit is created.
+
+### No breaking changes
+
+- No changes to `src/`. All existing CLI behaviour, config schema, and pipeline
+  stages are unchanged.
+
+## [0.11.0] — 2026-07-11
+
+### Added (v3-llm-throttle — V3-001)
+
+- **Token-aware sliding-window throttle**: `SummarizerConfig` gains `tokens_per_minute`
+  (default 6000, tuned for Groq free-tier). `_TokenWindow` tracks per-call
+  `total_tokens` in a 60-second rolling window; `sleep_if_needed()` pauses before
+  issuing a call when the window is near the budget. Cache hits and skipped items are
+  **not** counted into the window (AC-V3-001-004).
+- **Vietnamese-language summaries**: `SummarizerConfig.language` (default `"vi"`) is
+  injected into the system prompt so the LLM returns summaries in Vietnamese by default.
+  Operators can override to any language in `config.toml` (AC-V3-001-001).
+- **`response.usage` None-safety**: token recording now guards against providers and
+  mocks that return `None` for `response.usage` — treats as 0 tokens and never crashes
+  (AC-V3-001-003).
+- **429 retry-then-skip**: `RateLimitError` triggers exponential-backoff retry up to 3
+  attempts, honouring the `Retry-After` header when present. Only after exhausting
+  retries does the existing skip-log-continue fallback apply (AC-V3-001-002,
+  AC-V3-001-005..010). API key is never logged during retry (AC-V3-001-012).
+
+### Tests
+
+- 10 new unit tests added; suite total: **619 tests** (0 failures).
+
+### No breaking changes
+
+- All 4 new `SummarizerConfig` fields carry defaults; zero config changes required for
+  existing deployments.
+
+---
+
+## [0.10.0] — 2026-07-10
+
+### Added (v2-007-cache-etag)
+
+- **GitHub HTTP ETag conditional-request caching**: the REST collector now sends
+  `If-None-Match` on the first page of every endpoint (issues, releases). A `304 Not
+  Modified` response is treated as an empty delta for that endpoint — no further pages
+  are fetched and no rate-limit quota is consumed (AC-V2-007-001..005).
+- **`ConditionalCache` port** (`ports.py`): `get(key) → str | None`, `set(key, validator)`,
+  `commit()` — in-memory during the fetch loop, durable on `commit()`. Key format
+  `{repo}:{endpoint}`. `_NullConditionalCache` is the no-op default (AC-V2-007-006..009,
+  AC-2-015 port-boundary enforcement).
+- **`JsonFileETagStore` adapter** (`src/osspulse/cache/etag_store.py`): persists ETags to
+  `.osspulse/etags.json` using atomic temp-then-rename. Best-effort corrupt-tolerant —
+  an unreadable or malformed file logs a WARNING and returns an empty cache, never raising
+  `StateError` (inverted from `JsonFileStateStore` semantics per ADR-001,
+  AC-V2-007-010..017).
+- **First-page-only conditional requests**: `If-None-Match` is sent only on page 1.
+  Pages 2..N are fetched unconditionally, preserving correctness for partial-cache
+  scenarios (AC-V2-007-018..020, ADR-003).
+- **RISK-001 crash-safety**: `commit()` is called exactly once, after `mark_seen`, outside
+  the per-repo collection loop. A mid-loop `AuthError` or `RateLimitError` propagates
+  before `commit()` — no partial ETag state is persisted for a failed run
+  (AC-V2-007-021..025, ADR-004).
+- **Pipeline E2E integration** (AC-V2-007-026..028): three end-to-end pipeline tests use
+  real `JsonFileStateStore` + real `JsonFileETagStore` on `tmp_path` to verify the
+  full conditional-cache flow without mocking the file layer.
+- **Config opt-in** (`config.toml` `[etag_cache]` section): `enabled = true`,
+  `path = ".osspulse/etags.json"`. Guarded by two-flag gate: conditional requests active
+  only when `etag_cache_enabled AND delta_enabled` (AC-V2-007-029..034).
+- **59 new tests** — 609 total; 97% coverage on touched modules
+  (`etag_store` 92%, `github/client` 99%, `pipeline` 93%, `config` 98%).
+
+---
+
+## [0.9.0] — 2026-07-09
+
+### Added (v2-006-discussions)
+
+- **GitHub Discussions collection** via GraphQL API: `fetch_discussions` on
+  `GitHubCollector` queries the GitHub GraphQL endpoint and returns discussions as
+  `RawItem(item_type="discussion")` — same model as issues and releases (AC-V2-006-001).
+- **Approach A inclusion**: discussions are included if their `createdAt` falls within
+  `lookback_days` from the run time — identical logic to issues; not hotness-based
+  (AC-V2-006-001, AC-V2-006-002).
+- **Always-on collection**: every run attempts to collect discussions for every watched
+  repo; no opt-in config required (AC-V2-006-018).
+- **Disabled-Discussions silently skipped**: repos where GitHub Discussions is disabled
+  (or not found) return an empty list — the run continues with the remaining repos
+  and item types unaffected (AC-V2-006-003, ADR-003).
+- **`200-with-errors` model**: the GraphQL endpoint always returns HTTP 200. A null
+  `discussions` connection (shape-first detection) signals disabled/not-found → skip
+  repo; a non-null connection with `errors` → raise `CollectorError` (ADR-003).
+- **ADR-002 `json_body` routing**: `_request_with_retry` sends `GET` for REST calls
+  (issues/releases) and `POST` for GraphQL calls (`json_body=dict`). One shared
+  retry/classify path — no duplication (ADR-002).
+- **Discussion identity**: `repo + "discussion" + str(number)` — same pattern as
+  other item types; idempotency via the state store (AC-V2-006-005, AC-V2-006-020).
+- **Digest grouping**: discussions appear under `### Discussions (N)` within each
+  repo section of the rendered Markdown digest (AC-V2-006-021).
+- **Token discipline**: `GITHUB_TOKEN` is applied only to the httpx client
+  Authorization header — never stored on `self`, never in the GraphQL POST body,
+  never in error messages or logs (AC-V2-006-017).
+- **Pipeline inner-guard**: `AuthError` and `RateLimitError` propagate out of the
+  discussions-collection loop (fatal/terminal treatment), matching the behaviour of
+  the issues/releases guard (AC-V2-006-022).
+
+### Changed
+
+- `pipeline._collect_all`: discussions for each repo are fetched after issues and
+  releases and concatenated before `_partition_new` / `mark_seen` — the R1
+  partition-before-mark-seen invariant is preserved (AC-V2-006-019).
+- `GitHubCollector`: extended with `fetch_discussions` (adapter-only, no change to
+  `GitHubClient` Protocol) and shared `_request_with_retry` POST path (ADR-002).
+
+### Tests
+
+- 73 new tests; suite total: 550. Coverage 96.25% (client.py 99%, pipeline.py 93%).
+
+---
+
+## [0.8.0] — 2026-07-09
+
+### Added (v2-005-push-delivery)
+
+- **Discord webhook delivery** (`destination = "discord"`): digest POSTs to a Discord
+  channel webhook after every run. Configure via `[output] destination = "discord"` in
+  config.toml and `DISCORD_WEBHOOK_URL` in .env (AC-V2-005-001).
+- **Smart 2000-char split**: long digests split automatically at `## repo` section
+  boundaries first, then line, then hard char-slice — every message ≤ 2000 Unicode code
+  points (Discord API limit) (AC-V2-005-004..007).
+- **Configurable webhook env var**: `webhook_env` key overrides the env var name
+  (AC-V2-005-012).
+- **Security**: webhook URL never in logs/errors — DeliveryError uses status codes and
+  exception type names only (AC-V2-005-011, STRIDE T1).
+- **SSRF guard**: https + discord.com/discordapp.com host enforced at config-load
+  (AC-V2-005-014..015).
+- **10s timeout**: DeliveryError on timeout/network failure → exit 1 (AC-V2-005-010).
+
+### Config snippet
+
+```toml
+[output]
+destination = "discord"
+# webhook_env = "DISCORD_WEBHOOK_URL"   # optional override
+```
+
+```bash
+# .env
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
+```
+
+### Known limitations
+
+- Partial multi-message delivery: messages 1..k-1 already sent if message k fails;
+  no rollback (RISK-1, accepted — retry/backoff in V4).
+- pipeline.py discord branch (291-294) not covered by pipeline tests; adapter fully
+  tested (24 tests).
+
+---
+
 ## [0.7.0] — 2026-06-30
 
 ### Added (scheduler-cli-7, ticket #7)

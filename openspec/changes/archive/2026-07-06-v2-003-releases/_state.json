@@ -1,0 +1,145 @@
+{
+  "ticket_id": "V2-003",
+  "feature_slug": "releases",
+  "change_name": "v2-003-releases",
+  "type": "feature",
+  "rigor": "lite",
+  "testcase_export": "md",
+  "phases": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "current_phase": "S6",
+  "last_updated": "2026-07-06T16:31:20+07:00",
+  "last_agent": "developer",
+  "deploy_status": {
+    "dev": "pending",
+    "master": "pending"
+  },
+  "gates": {
+    "S2": "passed",
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed"
+  },
+  "convergence": {},
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "appended"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-06T11:28:00+07:00",
+      "completed": "2026-07-06T11:29:07+07:00",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/github-collector/spec.md (ADDED)",
+        "specs/scheduler-cli/spec.md (MODIFIED)",
+        "_glossary.md",
+        "_decisions.jsonl",
+        "_handoff.md"
+      ],
+      "key_outcome": "22 ACs (15 confirmed, 7 assumed), 7 BRs, 4 INTs, 16 edge cases. Scope collapsed to Collector fetch_releases + 1 pipeline-wiring line; NO digest-renderer delta (renderer already release-ready, AC-5-006/AC-5-011). openspec validate --strict PASS. STRIDE gate SKIPPED (no new attack surface)."
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-06T13:33:00+07:00",
+      "completed": "2026-07-06T13:33:30+07:00",
+      "artifacts_produced": [
+        "proposal.md (tags flipped, metadata updated)",
+        "specs/github-collector/spec.md (tags flipped)",
+        "specs/scheduler-cli/spec.md (tags flipped)",
+        "_handoff.md (S2 -> S3)",
+        "_glossary.md (S2 terms appended)",
+        "_decisions.jsonl (7 CONFIRMED lines appended)"
+      ],
+      "key_outcome": "22 ACs all CONFIRMED (0 ASSUMED), 7 BRs, 4 INTs, 16 edge cases. All 7 previously-ASSUMED ACs signed off by user. spec-auditor PASS (C1-C6, 0 blockers). openspec change validate --strict PASS. RISK-002 ordering-strategy tradeoff intentionally left OPEN for architect S3."
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-06T14:51:56+07:00",
+      "completed": "2026-07-06T15:07:14+07:00",
+      "artifacts_produced": [
+        "design.md",
+        "tasks.md",
+        "_handoff.md (S3 -> S4)",
+        "_glossary.md (S3 terms appended)",
+        "_decisions.jsonl (4 ADR lines appended)"
+      ],
+      "key_outcome": "4 ADRs, 0 endpoints (CLI tool — no openapi.yaml, ADR-004), 13 tasks (2 checkpoints). RISK-002 resolved (ADR-001): early-stop on created_at, include on published_at, residual miss accepted + regression-tested. ADR-003: inner guard wraps only fetch_releases, one partition + one mark_seen preserves v2-001 R1. cross-artifact-audit 0 CRITICAL (22/22 AC coverage). openspec change validate PASS."
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "started": "2026-07-06T15:31:00+07:00",
+      "completed": "2026-07-06T15:49:39+07:00",
+      "artifacts_produced": [
+        "src/osspulse/github/client.py (_map_release + fetch_releases)",
+        "src/osspulse/pipeline.py (inner guard + concatenation)",
+        "tests/github/__init__.py",
+        "tests/github/test_map_release.py (11 tests)",
+        "tests/github/test_fetch_releases.py (15 tests + RISK-002 regression)",
+        "tests/test_pipeline.py (4 new V2-003 tests + 22 compatibility stubs)",
+        "tests/test_cli_run.py (1 compatibility stub)",
+        "dev-test-report.md",
+        "_handoff.md (S4 -> S5)",
+        "_decisions.jsonl (4 S4 entries)"
+      ],
+      "key_outcome": "coverage client.py=99%, pipeline.py=96%, overall=96%. 459/459 tests pass. 13/13 tasks [x]. 2 deviations (inner guard catch tuple refinement; test compatibility stubs). All ADR-001/ADR-003/R1 tripwires green."
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "started": "2026-07-06T16:16:49+07:00",
+      "completed": "2026-07-06T16:16:49+07:00",
+      "artifacts_produced": [
+        "qa-report.md",
+        "qa/testcases.md (34 test cases, testcase_export=md)",
+        "qa/coverage_summary.md",
+        "qa/spec_tc_gap_report (inline in qa-report.md)",
+        "_handoff.md (S5 -> S6)",
+        "_decisions.jsonl (4 S5 entries: QA-VERIFY-001..003, QA-OBS-001)"
+      ],
+      "key_outcome": "GO — 0 Critical/High bugs. 22/22 ACs verified. 459 tests pass. Coverage 96%. All ADR-001 stop-key, ADR-003 inner-guard, R1 tripwires confirmed valid. Inner guard deviation (two-arm pattern) confirmed correct. Renderer GROUP_ORDER unchanged. Protocol frozen. 1 non-blocking observation: README lacks Releases note (not a formal AC)."
+    }
+  ],
+  "active_concerns": [
+    "S6 release: README does not mention Releases yet — proposal noted a short note should be added (not a formal AC, not a blocker, but worth doing in S6 release notes)",
+    "S6 release: pip-audit unavailable in dev environment — dependency audit was manual only; recommend adding pip-audit to CI",
+    "Future: inner guard isinstance(exc,(AuthError,RateLimitError)) check must be updated if new fatal CollectorError subclasses are added to errors.py"
+  ],
+  "terminology": {
+    "Release identity": "repo + 'release' + tag_name — reuses the item_type-agnostic state-store key",
+    "Draft release": "published_at == null — excluded from collection",
+    "Prerelease": "prerelease == true — included",
+    "fetch_releases": "adapter-only Collector method; GitHubClient Protocol stays frozen",
+    "dual-key pagination": "ADR-001: early-stop on created_at (endpoint sort key), include on published_at (requirement)",
+    "inner release guard": "ADR-003: narrow try/except around only fetch_releases so issues survive a release failure (AC-022)",
+    "R1 invariant": "v2-001: _partition_new before mark_seen; mark_seen gets the FULL issues+releases list once per repo",
+    "published-vs-created skew": "RISK-002 — inclusion keys on published_at while the endpoint orders by created_at",
+    "SPEC-LOCK sign-off": "user confirmation (2026-07-06) flipping the 7 ASSUMED release ACs to CONFIRMED"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null,
+    "routes_to": null,
+    "priority_reading": [],
+    "watch_items": [
+      "Future: inner guard isinstance(exc,(AuthError,RateLimitError)) must be updated if new fatal CollectorError subclasses are added to errors.py",
+      "RISK-002 tripwire test must remain PASSING — the miss is accepted behavior; do not fix it",
+      "Add pip-audit to CI (recommended follow-up — pip-audit unavailable in dev env)"
+    ]
+  }
+}

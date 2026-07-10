@@ -51,6 +51,8 @@ def test_per_repo_outcome_log_emitted(tmp_path, caplog):
     )
 
     mock_collector = MagicMock()
+    mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = [[item], NetworkError("timeout")]
     mock_state = MagicMock()
 
@@ -160,7 +162,9 @@ def test_broken_pipe_exits_0(tmp_path):
     # (a) Static contract checks
     assert "BrokenPipeError" in src, "BrokenPipeError handler missing from cli.run"
     assert "typer.Exit(code=0)" in src, "BrokenPipe handler must raise typer.Exit(code=0)"
-    assert "os.dup2" in src, "BrokenPipe handler must redirect stdout to devnull (os.dup2)"
+    # os.dup2 lives in _handle_broken_pipe() (B-003 refactor) — verify it exists on the module
+    helper_src = inspect.getsource(cli_mod._handle_broken_pipe)
+    assert "os.dup2" in helper_src, "BrokenPipe handler must redirect stdout to devnull (os.dup2)"
 
 
 def test_success_exits_0(tmp_path):

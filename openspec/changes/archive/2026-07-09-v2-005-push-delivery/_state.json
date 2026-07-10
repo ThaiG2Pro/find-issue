@@ -1,0 +1,126 @@
+{
+  "ticket_id": "V2-005",
+  "feature_slug": "push-delivery",
+  "change_name": "v2-005-push-delivery",
+  "type": "feature",
+  "rigor": "lite",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "phases": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "isolation": {
+    "method": "branch",
+    "branch": "feature/V2-005-push-delivery",
+    "worktree_path": null,
+    "base_branch": "feature/V2-002-cron-scheduler"
+  },
+  "current_phase": "S6",
+  "gates": {
+    "S2": "passed",
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed"
+  },
+  "convergence": {},
+  "last_updated": "2026-07-08T14:12:52+07:00",
+  "last_agent": "architect",
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-08T14:15:48+07:00",
+      "completed": "2026-07-08T14:35:00+07:00",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/delivery/spec.md (ADDED+MODIFIED)",
+        "stride-threat-model.md",
+        "_glossary.md",
+        "_decisions.jsonl",
+        "_handoff.md"
+      ],
+      "key_outcome": "15 ACs (V2-005-001..015), 5 BRs, 1 INT, 16 edge cases. Discord webhook chosen (CLAR-1). output_destination=discord as 3rd value. STRIDE PASS (0 Critical, 1 High T1 URL-leak mitigated). openspec validate PASS. delivery-6 first-comma-SHALL lesson hit + fixed."
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-08T14:52:20+07:00",
+      "completed": "2026-07-08T15:05:00+07:00",
+      "artifacts_produced": [
+        "specs/delivery/spec.md (7 ASSUMED->CONFIRMED, BR/INT defs added)",
+        "proposal.md (Non-Goals added, tags flipped)",
+        "_handoff.md (S2->S3)",
+        "_decisions.jsonl (7 CONFIRMED lines)"
+      ],
+      "key_outcome": "15 ACs all CONFIRMED (0 ASSUMED), 5 BRs, 1 INT, 16 edge cases. User signed off all 7 ASSUMED ACs at SPEC LOCK. spec-auditor C1-C6 PASS. openspec validate PASS. httpx-reuse + partial-delivery left OPEN for architect S3."
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-08T15:24:00+07:00",
+      "completed": "2026-07-08T16:05:00+07:00",
+      "artifacts_produced": [
+        "design.md",
+        "tasks.md",
+        "_handoff.md (S3->S4)",
+        "_glossary.md (6 S3 terms)",
+        "_decisions.jsonl (4 ADR lines)"
+      ],
+      "key_outcome": "4 ADRs, 0 endpoints (CLI tool, no openapi.yaml per ADR-004), 17 subtasks (2 checkpoints). httpx reuse confirmed (ADR-001). Char-based two-level split (ADR-002). Config-load https+host-allowlist validation (ADR-003). cross-artifact-audit 0 CRITICAL (15/15 AC coverage, 0 orphan tasks). openspec validate PASS."
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "completed": "2026-07-08T17:15:00+07:00",
+      "artifacts": [
+        "src/osspulse/models.py",
+        "src/osspulse/config.py",
+        "src/osspulse/delivery/discord_delivery.py",
+        "src/osspulse/delivery/__init__.py",
+        "src/osspulse/pipeline.py",
+        "tests/delivery/test_discord_split.py",
+        "tests/delivery/test_discord_delivery.py",
+        "tests/test_config.py (+10 discord tests)",
+        "dev-test-report.md",
+        "_handoff.md (S4->S5)"
+      ],
+      "key_outcome": "coverage 96%, 103/103 tests pass, 0 lint errors, 17/17 tasks [x], 1 deviation (duck-type port check)"
+    }
+  ],
+  "active_concerns": [
+    "pipeline.py lines 291-294 uncovered (discord elif branch not hit by test_pipeline.py — pipeline tests use file/stdout fixtures only; functional wiring verified by delivery tests)",
+    "config.py lines 117-119,126,164 — LLM/file-validation paths not changed by this PR, coverage regression negligible"
+  ],
+  "terminology": {
+    "output_destination=discord": "third mutually-exclusive delivery value (file/stdout/discord)",
+    "2000-char limit": "Discord max content per message, counted in Unicode chars not bytes",
+    "Discord host allowlist": "config-load check: https + host in {discord.com,discordapp.com} — SSRF/mis-route guard",
+    "DISCORD_WEBHOOK_URL": "default env var for the webhook secret; never in config file, never logged",
+    "Fatal push": "push failure -> DeliveryError -> Error: stderr -> exit 1; ~10s timeout",
+    "Partial multi-message delivery": "if message k of n fails, 1..k-1 already delivered; no rollback"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  },
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "appended"
+  },
+  "checkpoints": {
+    "cp3_1": "pass",
+    "cp10_1": "pass"
+  },
+  "deploy_status": {
+    "master": "pending"
+  }
+}

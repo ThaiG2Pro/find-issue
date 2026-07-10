@@ -36,10 +36,12 @@ def _item(**kwargs) -> RawItem:
     return RawItem(**{**defaults, **kwargs})
 
 
-def _mock_response(text: str) -> MagicMock:
+def _mock_response(text: str, total_tokens: int = 50) -> MagicMock:
     """Build a minimal mock of litellm.completion()'s return value."""
     resp = MagicMock()
     resp.choices[0].message.content = text
+    resp.usage = MagicMock()
+    resp.usage.total_tokens = total_tokens
     return resp
 
 
@@ -69,13 +71,15 @@ class _FakeCache:
         self.set_calls.append((key, value))
 
 
-def _summarizer(completion=None, cache=None) -> LiteLLMSummarizer:
+def _summarizer(completion=None, cache=None, sleep=None, clock=None) -> LiteLLMSummarizer:
     return LiteLLMSummarizer(
         provider="openai",
         api_key="test-key",
         cache=cache or _FakeCache(),
         config=_CFG,
         completion=completion or MagicMock(return_value=_mock_response("Good summary.")),
+        **({"sleep": sleep} if sleep is not None else {}),
+        **({"clock": clock} if clock is not None else {}),
     )
 
 
@@ -330,15 +334,27 @@ def test_llm_5xx_item_skipped_AC_4_010():
 
 
 def test_llm_rate_limit_item_skipped_AC_4_010():
-    """RateLimitError (429): item skipped (AC-4-010)."""
+    """RateLimitError (429): retries max_retries times then item is skipped (MODIFIED AC-4-010).
+
+    Now retries before skipping (AC-V3-001-008 + ADR-005).  A no-op sleep is injected
+    so the test does not stall for real backoff seconds (ADR-003).
+    """
+    call_count = 0
 
     def fake_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
         raise litellm.exceptions.RateLimitError(
             message="rate limit", model="m", llm_provider="openai"
         )
 
-    result = _summarizer(completion=fake_completion).summarize_items([_item()])
+    result = _summarizer(
+        completion=fake_completion,
+        sleep=lambda _: None,  # no-op — ADR-003
+    ).summarize_items([_item()])
     assert result == []
+    # Should have tried max_retries+1 times (initial + 3 retries = 4 attempts)
+    assert call_count == _CFG.max_retries + 1
 
 
 def test_item_b_fails_a_c_succeed_AC_4_011():
@@ -422,3 +438,233 @@ def test_empty_llm_output_item_skipped_EC_012():
     completion = MagicMock(return_value=_mock_response(""))
     result = _summarizer(completion=completion).summarize_items([_item()])
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Vietnamese prompt (AC-V3-001-005)
+# ---------------------------------------------------------------------------
+
+
+def test_vietnamese_instruction_in_messages_AC_V3_001_005():
+    """The exact Vietnamese instruction appears in the system message (AC-V3-001-005)."""
+    captured_messages: list[list[dict]] = []
+
+    def fake_completion(**kwargs):
+        captured_messages.append(kwargs["messages"])
+        return _mock_response("Tóm tắt: lỗi xảy ra.")
+
+    _summarizer(completion=fake_completion, sleep=lambda _: None).summarize(_item())
+
+    assert captured_messages, "completion was not called"
+    system_msg = next(m for m in captured_messages[0] if m["role"] == "system")
+    assert "Trả lời bằng tiếng Việt." in system_msg["content"]
+    # RF-1: user message must contain only title and body of the item
+    user_msg = next(m for m in captured_messages[0] if m["role"] == "user")
+    assert "Bug in parser" in user_msg["content"]
+    assert "The parser crashes on empty input." in user_msg["content"]
+
+
+# ---------------------------------------------------------------------------
+# TokenWindow (AC-V3-001-001..004)
+# ---------------------------------------------------------------------------
+
+
+def test_token_window_no_sleep_under_budget_AC_V3_001_002():
+    """Window under budget: sleep is never called (AC-V3-001-002)."""
+    slept: list[float] = []
+    t = [0.0]
+
+    def fake_clock() -> float:
+        return t[0]
+
+    def fake_sleep(secs: float) -> None:
+        slept.append(secs)
+
+    completion = MagicMock(return_value=_mock_response("ok.", total_tokens=100))
+    s = _summarizer(completion=completion, sleep=fake_sleep, clock=fake_clock)
+
+    # Summarize 3 items — total 300 tokens, well under 6000 budget
+    for i in range(3):
+        s.summarize(_item(item_id=str(i), body=f"Body {i}."))
+        t[0] += 1.0  # advance clock between items
+
+    assert slept == [], f"unexpected sleeps: {slept}"
+
+
+def test_token_window_sleep_when_budget_hit_AC_V3_001_001():
+    """Window at budget: sleep_if_needed() sleeps until oldest entry expires (AC-V3-001-001)."""
+    slept: list[float] = []
+    # Monotonic clock sequence: 0.0, then we simulate the window being full
+    clock_values = iter([0.0] * 100)
+
+    def fake_clock() -> float:
+        return next(clock_values, 0.0)
+
+    def fake_sleep(secs: float) -> None:
+        slept.append(secs)
+        # advance the clock so _prune drops entries after sleep
+        nonlocal clock_values
+        # Replace iterator to return time past the window
+        clock_values = iter([200.0] * 100)
+
+    from osspulse.summarizer.client import TokenWindow
+
+    win = TokenWindow(
+        tokens_per_minute=100,
+        window_seconds=60.0,
+        clock=fake_clock,
+        sleep=fake_sleep,
+    )
+    # Record 100 tokens at t=0 — window is now AT budget
+    win._entries = [(0.0, 100)]
+    # clock is at 0.0 — sleep is needed
+    win.sleep_if_needed()
+
+    assert len(slept) >= 1, "should have slept at least once"
+
+
+def test_token_window_missing_usage_records_zero_AC_V3_001_003():
+    """response.usage is None → 0 tokens recorded, no crash (AC-V3-001-003)."""
+    resp = MagicMock()
+    resp.choices[0].message.content = "ok."
+    resp.usage = None  # explicitly None
+
+    completion = MagicMock(return_value=resp)
+    s = _summarizer(completion=completion, sleep=lambda _: None)
+
+    # Should not raise
+    result = s.summarize(_item())
+    assert result == "ok."
+    # Window should have recorded 0 tokens
+    assert s._window._entries[0][1] == 0
+
+
+def test_token_window_cache_hit_not_counted_AC_V3_001_004():
+    """Cache hit: window is untouched, no sleep (AC-V3-001-004)."""
+    from osspulse.summarizer.keys import cache_key, content_hash
+    from osspulse.summarizer.normalize import prepare_input
+
+    slept: list[float] = []
+    item = _item()
+    t, b = prepare_input(item.title, item.body)
+    key = cache_key(item, content_hash(t, b))
+    cache = _FakeCache(store={key: "cached"})
+    completion = MagicMock()
+
+    s = _summarizer(completion=completion, cache=cache, sleep=lambda d: slept.append(d))
+    result = s.summarize(item)
+
+    assert result == "cached"
+    completion.assert_not_called()
+    assert s._window._entries == [], "window must be empty for cache hits"
+    assert slept == [], "no sleep should occur for cache hit"
+
+
+def test_token_window_skip_item_not_counted_AC_V3_001_004():
+    """Fully-empty item skip: window is untouched (AC-V3-001-004)."""
+    completion = MagicMock()
+    s = _summarizer(completion=completion, sleep=lambda _: None)
+    result = s.summarize_items([_item(title="", body="")])
+    assert result == []
+    assert s._window._entries == [], "window must be empty for skipped items"
+    completion.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Retry-then-skip (AC-V3-001-006..008)
+# ---------------------------------------------------------------------------
+
+
+def test_retry_succeeds_on_second_attempt_AC_V3_001_006():
+    """RateLimitError on first call; success on retry → SummarizedItem produced (AC-V3-001-006)."""
+    call_count = 0
+
+    def fake_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise litellm.exceptions.RateLimitError(
+                message="rate limit", model="m", llm_provider="openai"
+            )
+        return _mock_response("Good summary after retry.")
+
+    result = _summarizer(
+        completion=fake_completion,
+        sleep=lambda _: None,
+    ).summarize_items([_item()])
+
+    assert len(result) == 1
+    assert result[0].summary == "Good summary after retry."
+    assert call_count == 2
+
+
+def test_retry_after_header_honored_AC_V3_001_007():
+    """Retry-After header present: sleep waits at least that many seconds (AC-V3-001-007)."""
+    slept: list[float] = []
+    call_count = 0
+
+    def fake_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            exc = litellm.exceptions.RateLimitError(
+                message="rate limit", model="m", llm_provider="openai"
+            )
+            # Attach a mock response with Retry-After header
+            mock_response = MagicMock()
+            mock_response.headers = {"Retry-After": "5"}
+            exc.response = mock_response
+            raise exc
+        return _mock_response("ok.")
+
+    _summarizer(
+        completion=fake_completion,
+        sleep=lambda secs: slept.append(secs),
+    ).summarize_items([_item()])
+
+    assert slept, "should have slept at least once"
+    # The wait should be max(5.0, backoff) — at minimum 5 seconds honored
+    assert slept[0] >= 5.0, f"expected >= 5s from Retry-After, got {slept[0]}"
+
+
+def test_retries_exhausted_item_skipped_AC_V3_001_008():
+    """All retries fail: item skipped, others still summarized (AC-V3-001-008)."""
+    item_a = _item(item_id="a", title="A", body="Body A.")
+    item_b = _item(item_id="b", title="B", body="Body B.")  # always 429
+
+    def fake_completion(**kwargs):
+        if "Body B." in kwargs["messages"][1]["content"]:
+            raise litellm.exceptions.RateLimitError(
+                message="rate limit", model="m", llm_provider="openai"
+            )
+        return _mock_response("Summary.")
+
+    result = _summarizer(
+        completion=fake_completion,
+        sleep=lambda _: None,
+    ).summarize_items([item_a, item_b])
+
+    ids = [r.raw.item_id for r in result]
+    assert "a" in ids
+    assert "b" not in ids  # skipped after exhaustion
+
+
+def test_failure_log_no_api_key_on_retry_exhaust_AC_4_012(caplog):
+    """Retry exhaust log contains identity only — no key or prompt (AC-4-012)."""
+    item = _item(item_id="99", title="Title99", body="Body99.")
+
+    def fake_completion(**kwargs):
+        raise litellm.exceptions.RateLimitError(
+            message="rate limit", model="m", llm_provider="openai"
+        )
+
+    with caplog.at_level(logging.WARNING):
+        _summarizer(
+            completion=fake_completion,
+            sleep=lambda _: None,
+        ).summarize_items([item])
+
+    log_text = " ".join(caplog.messages)
+    assert "test-key" not in log_text
+    assert "Body99" not in log_text
+    assert "owner/repo/issue/99" in log_text

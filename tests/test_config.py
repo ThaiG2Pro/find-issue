@@ -225,3 +225,200 @@ def test_ollama_no_key_required(tmp_path):
     cfg = load_config(p, ENV)
     assert cfg.llm_provider == "ollama"
     assert cfg.llm_api_key is None
+
+
+# ---------------------------------------------------------------------------
+# Delta filter config (AC-V2-001-002, AC-V2-001-006, AC-V2-001-007)
+# ---------------------------------------------------------------------------
+
+
+def test_delta_section_absent_defaults_true(tmp_path):
+    """[delta] section absent → delta_enabled defaults to True (AC-V2-001-002)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n')
+    cfg = load_config(p, ENV)
+    assert cfg.delta_enabled is True
+
+
+def test_delta_enabled_false(tmp_path):
+    """[delta] enabled = false → Config(delta_enabled=False) (AC-V2-001-006)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n[delta]\nenabled = false\n')
+    cfg = load_config(p, ENV)
+    assert cfg.delta_enabled is False
+
+
+def test_delta_enabled_true_explicit(tmp_path):
+    """[delta] enabled = true is accepted explicitly (AC-V2-001-002)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n[delta]\nenabled = true\n')
+    cfg = load_config(p, ENV)
+    assert cfg.delta_enabled is True
+
+
+def test_delta_enabled_non_bool_string_raises(tmp_path):
+    """[delta] enabled = "yes" (non-bool) raises ConfigError — bool-trap guard (AC-V2-001-007)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n[delta]\nenabled = "yes"\n')
+    with pytest.raises(ConfigError, match="delta.enabled must be a boolean"):
+        load_config(p, ENV)
+
+
+def test_delta_enabled_int_raises(tmp_path):
+    """[delta] enabled = 1 (int, not bool) raises ConfigError — isinstance(True, int) trap
+    (AC-V2-001-007)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n[delta]\nenabled = 1\n')
+    with pytest.raises(ConfigError, match="delta.enabled must be a boolean"):
+        load_config(p, ENV)
+
+
+# ---------------------------------------------------------------------------
+# Discord webhook config (AC-V2-005-012..015)
+# ---------------------------------------------------------------------------
+
+_DISCORD_URL = "https://discord.com/api/webhooks/123/token"
+_DISCORD_ENV = {**ENV, "DISCORD_WEBHOOK_URL": _DISCORD_URL}
+
+_MINIMAL_DISCORD_TOML = '[watchlist]\nrepos = ["a/b"]\n\n[output]\ndestination = "discord"\n'
+
+
+def test_discord_destination_loads_from_env(tmp_path):
+    """destination='discord' + valid env URL → Config with webhook_url set (AC-V2-005-012)."""
+    p = write_toml(tmp_path, _MINIMAL_DISCORD_TOML)
+    cfg = load_config(p, _DISCORD_ENV)
+    assert cfg.output_destination == "discord"
+    assert cfg.webhook_url == _DISCORD_URL
+    assert cfg.webhook_env == "DISCORD_WEBHOOK_URL"
+
+
+def test_discord_destination_output_path_irrelevant(tmp_path):
+    """output_path is not required / not validated when destination='discord' (AC-V2-005-012)."""
+    toml = '[watchlist]\nrepos = ["a/b"]\n\n[output]\ndestination = "discord"\n'
+    p = write_toml(tmp_path, toml)
+    cfg = load_config(p, _DISCORD_ENV)
+    assert cfg.output_destination == "discord"
+    # output_path retains default — no error raised
+    assert cfg.output_path == "./digest.md"
+
+
+def test_discord_env_unset_raises(tmp_path):
+    """Missing DISCORD_WEBHOOK_URL → ConfigError (AC-V2-005-013)."""
+    p = write_toml(tmp_path, _MINIMAL_DISCORD_TOML)
+    with pytest.raises(ConfigError, match="DISCORD_WEBHOOK_URL"):
+        load_config(p, ENV)  # ENV has no DISCORD_WEBHOOK_URL
+
+
+def test_discord_env_empty_raises(tmp_path):
+    """Empty DISCORD_WEBHOOK_URL → ConfigError (AC-V2-005-013)."""
+    p = write_toml(tmp_path, _MINIMAL_DISCORD_TOML)
+    with pytest.raises(ConfigError, match="DISCORD_WEBHOOK_URL"):
+        load_config(p, {**ENV, "DISCORD_WEBHOOK_URL": "   "})
+
+
+def test_discord_http_url_raises(tmp_path):
+    """http:// webhook URL → ConfigError (AC-V2-005-014)."""
+    p = write_toml(tmp_path, _MINIMAL_DISCORD_TOML)
+    with pytest.raises(ConfigError, match="https"):
+        load_config(p, {**ENV, "DISCORD_WEBHOOK_URL": "http://discord.com/api/webhooks/1/t"})
+
+
+def test_discord_non_discord_host_raises(tmp_path):
+    """Webhook host not in allowlist → ConfigError (AC-V2-005-015)."""
+    p = write_toml(tmp_path, _MINIMAL_DISCORD_TOML)
+    with pytest.raises(ConfigError, match="discord.com"):
+        load_config(p, {**ENV, "DISCORD_WEBHOOK_URL": "https://evil.com/api/webhooks/1/t"})
+
+
+def test_discord_discordapp_host_accepted(tmp_path):
+    """discordapp.com host is in the allowlist (AC-V2-005-015)."""
+    p = write_toml(tmp_path, _MINIMAL_DISCORD_TOML)
+    url = "https://discordapp.com/api/webhooks/456/token"
+    cfg = load_config(p, {**ENV, "DISCORD_WEBHOOK_URL": url})
+    assert cfg.webhook_url == url
+
+
+def test_discord_custom_webhook_env_honored(tmp_path):
+    """[output] webhook_env overrides the default env var name (AC-V2-005-012)."""
+    toml = (
+        '[watchlist]\nrepos = ["a/b"]\n\n'
+        '[output]\ndestination = "discord"\nwebhook_env = "MY_DISCORD_URL"\n'
+    )
+    p = write_toml(tmp_path, toml)
+    cfg = load_config(p, {**ENV, "MY_DISCORD_URL": _DISCORD_URL})
+    assert cfg.webhook_url == _DISCORD_URL
+    assert cfg.webhook_env == "MY_DISCORD_URL"
+
+
+def test_discord_error_message_does_not_contain_url(tmp_path):
+    """ConfigError for bad URL must NOT leak the URL value (AC-V2-005-011)."""
+    p = write_toml(tmp_path, _MINIMAL_DISCORD_TOML)
+    bad_url = "http://evil.com/api/webhooks/1/supersecrettoken"
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(p, {**ENV, "DISCORD_WEBHOOK_URL": bad_url})
+    assert bad_url not in str(exc_info.value)
+    assert "supersecrettoken" not in str(exc_info.value)
+
+
+def test_invalid_destination_still_rejected(tmp_path):
+    """Unknown destination value → ConfigError (AC-6-012)."""
+    toml = '[watchlist]\nrepos = ["a/b"]\n\n[output]\ndestination = "email"\n'
+    p = write_toml(tmp_path, toml)
+    with pytest.raises(ConfigError, match="email"):
+        load_config(p, ENV)
+
+
+# ---------------------------------------------------------------------------
+# ETag cache config (AC-V2-007-020, AC-V2-007-021)
+# ---------------------------------------------------------------------------
+
+
+def test_etag_cache_section_absent_defaults_enabled_and_default_path(tmp_path):
+    """Absent [etag_cache] section → etag_cache_enabled=True + default path (AC-V2-007-020)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n')
+    cfg = load_config(p, ENV)
+    assert cfg.etag_cache_enabled is True
+    assert cfg.etag_cache_path == "./.osspulse/etags.json"
+
+
+def test_etag_cache_enabled_false(tmp_path):
+    """[etag_cache] enabled = false → etag_cache_enabled=False (AC-V2-007-020)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = false\n')
+    cfg = load_config(p, ENV)
+    assert cfg.etag_cache_enabled is False
+
+
+def test_etag_cache_custom_path(tmp_path):
+    """[etag_cache] path = custom → etag_cache_path set correctly (AC-V2-007-020)."""
+    p = write_toml(
+        tmp_path,
+        (
+            '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\n'
+            'enabled = true\npath = "/custom/etags.json"\n'
+        ),
+    )
+    cfg = load_config(p, ENV)
+    assert cfg.etag_cache_path == "/custom/etags.json"
+
+
+def test_etag_cache_enabled_non_bool_string_raises(tmp_path):
+    """[etag_cache] enabled = "yes" → ConfigError (bool-trap guard, AC-V2-007-021)."""
+    p = write_toml(
+        tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = "yes"\n'
+    )
+    with pytest.raises(ConfigError, match="etag_cache.enabled must be a boolean"):
+        load_config(p, ENV)
+
+
+def test_etag_cache_enabled_int_raises(tmp_path):
+    """[etag_cache] enabled = 1 (int, not bool) → ConfigError (isinstance(True, int) trap,
+    AC-V2-007-021)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = 1\n')
+    with pytest.raises(ConfigError, match="etag_cache.enabled must be a boolean"):
+        load_config(p, ENV)
+
+
+def test_etag_cache_config_error_before_pipeline(tmp_path):
+    """Non-boolean etag_cache.enabled raises ConfigError at load time, not inside the pipeline
+    (AC-V2-007-021 — fail-fast)."""
+    p = write_toml(
+        tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[etag_cache]\nenabled = "true"\n'
+    )
+    # Confirm exception is raised at load_config call, before any pipeline code runs
+    with pytest.raises(ConfigError):
+        load_config(p, ENV)

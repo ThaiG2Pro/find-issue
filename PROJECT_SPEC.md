@@ -161,6 +161,8 @@ Tiêu chí "xong V1": chạy `osspulse run` trên 3–5 repo thật → ra một
 - UI nhẹ để quản lý watchlist (web đơn giản hoặc TUI).
 - Lọc/đánh dấu issue theo gợi ý (vd có label `good first issue`, chưa có người
   nhận) — *hiển thị để hiểu, không phải để đua tốc độ*.
+- **GitHub Actions workflow**: file `.github/workflows/osspulse.yml` chạy `osspulse run` theo cron, tự động persist `state.json` bằng `git commit` sau mỗi run (`[skip ci]`). Giải quyết bài toán stateless CI — không có workflow này, pipeline không thể deploy "không cần mở laptop". _Nguồn: gap phát hiện khi test V2 trên CI._
+- **State persistence strategy cho CI/CD**: spec rõ 3 option (git-commit / Actions cache / remote storage) và chọn mặc định. _Nguồn: state.json hiện chỉ thiết kế cho local cron, chưa cover GitHub Actions use case._
 - (Thử nghiệm) chỉ số "repo này có welcome contributor mới không": thời gian phản
   hồi PR, tỉ lệ PR newcomer được merge.
 - **Push đa kênh (multi-channel delivery)**: cho phép gửi digest tới nhiều đích cùng
@@ -177,6 +179,8 @@ Tiêu chí "xong V1": chạy `osspulse run` trên 3–5 repo thật → ra một
 - **Discord rich embeds**: render digest thành embed (màu, field, tiêu đề repo) thay vì
   plain Markdown, tận dụng giới hạn 4096/6000 ký tự lớn hơn của embed. _Nguồn: option bị
   loại ở CLAR-4 (V2 chọn plain content cho đơn giản, tránh embed schema)._
+- **Redis as a service (Upstash)**: thay Redis local bằng Upstash Redis (free tier, HTTP-based) để LLM summary cache hoạt động được trên GitHub Actions và môi trường stateless. _Nguồn: Redis local không khả dụng trên CI — hiện tại pipeline graceful-degrade sang no-cache, nhưng mỗi run đều tốn Groq quota._
+- **Rate limit retry với defer**: khi LLM hit RateLimitError, defer item sang lần chạy tiếp theo thay vì skip-and-mark-seen như hiện tại. _Nguồn: V2 chủ đích skip để đơn giản (AC-4-009/010), nhưng thực tế Groq free tier 6000 tokens/min khiến các item cuối bị drop vĩnh viễn._
 
 ### Out of Scope (không làm, cố ý)
 - ❌ Scan/crawl toàn bộ GitHub hoặc "mọi repo có GFI".

@@ -380,6 +380,7 @@ def test_200_no_etag_header_no_set_no_crash_issues(tmp_path):
 
 def test_200_no_etag_no_crash_null_cache(tmp_path):
     """200 with no ETag, null cache → items returned normally, no crash (AC-V2-007-014)."""
+
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[_issue(1)], headers={})
 
@@ -417,6 +418,7 @@ def test_429_on_conditional_request_retries_issues(tmp_path):
 
 def test_401_on_conditional_request_fails_fast_issues(tmp_path):
     """401 on conditional request → AuthError fail-fast (AC-V2-007-016)."""
+
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(401)
 
@@ -430,6 +432,7 @@ def test_401_on_conditional_request_fails_fast_issues(tmp_path):
 
 def test_5xx_on_conditional_request_retries_then_raises(tmp_path):
     """500 on conditional request → retry up to max, then RateLimitError (AC-V2-007-016)."""
+
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(500)
 
@@ -447,8 +450,11 @@ def test_5xx_on_conditional_request_retries_then_raises(tmp_path):
     client = httpx.Client(
         transport=httpx.MockTransport(handler),
         base_url="https://api.github.com",
-        headers={"Authorization": f"Bearer {TOKEN}", "Accept": "application/vnd.github+json",
-                 "X-GitHub-Api-Version": "2022-11-28"},
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
     )
     c = GitHubCollector(
         TOKEN, cfg_no_retry, client=client, sleep=lambda _: None, conditional_cache=cache
@@ -489,6 +495,7 @@ def test_fetch_discussions_sends_no_conditional_header(tmp_path):
 
 def test_fetch_discussions_cache_set_never_called(tmp_path):
     """fetch_discussions never calls cache.set (AC-V2-007-017)."""
+
     def handler(req: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_discussion_query_response(1))
 

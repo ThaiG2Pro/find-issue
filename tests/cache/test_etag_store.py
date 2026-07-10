@@ -318,12 +318,12 @@ def test_store_does_not_import_json_store(tmp_path):
     import_lines = [
         line for line in module_source.splitlines() if line.startswith(("import ", "from "))
     ]
-    assert not any(
-        "state" in line for line in import_lines
-    ), f"etag_store.py must not import any state module; found: {import_lines}"
-    assert not any(
-        "StateError" in line for line in import_lines
-    ), "etag_store.py must not import StateError"
+    assert not any("state" in line for line in import_lines), (
+        f"etag_store.py must not import any state module; found: {import_lines}"
+    )
+    assert not any("StateError" in line for line in import_lines), (
+        "etag_store.py must not import StateError"
+    )
 
 
 # ---------------------------------------------------------------------------

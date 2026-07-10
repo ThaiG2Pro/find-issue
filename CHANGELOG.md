@@ -6,6 +6,37 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.11.0] — 2026-07-11
+
+### Added (v3-llm-throttle — V3-001)
+
+- **Token-aware sliding-window throttle**: `SummarizerConfig` gains `tokens_per_minute`
+  (default 6000, tuned for Groq free-tier). `_TokenWindow` tracks per-call
+  `total_tokens` in a 60-second rolling window; `sleep_if_needed()` pauses before
+  issuing a call when the window is near the budget. Cache hits and skipped items are
+  **not** counted into the window (AC-V3-001-004).
+- **Vietnamese-language summaries**: `SummarizerConfig.language` (default `"vi"`) is
+  injected into the system prompt so the LLM returns summaries in Vietnamese by default.
+  Operators can override to any language in `config.toml` (AC-V3-001-001).
+- **`response.usage` None-safety**: token recording now guards against providers and
+  mocks that return `None` for `response.usage` — treats as 0 tokens and never crashes
+  (AC-V3-001-003).
+- **429 retry-then-skip**: `RateLimitError` triggers exponential-backoff retry up to 3
+  attempts, honouring the `Retry-After` header when present. Only after exhausting
+  retries does the existing skip-log-continue fallback apply (AC-V3-001-002,
+  AC-V3-001-005..010). API key is never logged during retry (AC-V3-001-012).
+
+### Tests
+
+- 10 new unit tests added; suite total: **619 tests** (0 failures).
+
+### No breaking changes
+
+- All 4 new `SummarizerConfig` fields carry defaults; zero config changes required for
+  existing deployments.
+
+---
+
 ## [0.10.0] — 2026-07-10
 
 ### Added (v2-007-cache-etag)

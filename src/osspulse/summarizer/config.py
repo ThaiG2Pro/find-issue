@@ -24,3 +24,9 @@ class SummarizerConfig:
     input_char_cap: int = 8000
     max_sentences: int = 2
     max_summary_chars: int = 600
+    # Throttle tunables (AC-V3-001-001, ADR-001)
+    tokens_per_minute: int = 6000
+    throttle_window_seconds: float = 60.0
+    # Retry tunables (AC-V3-001-006, ADR-005)
+    max_retries: int = 3
+    retry_backoff_base_seconds: float = 1.0

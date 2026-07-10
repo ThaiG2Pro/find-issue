@@ -10,6 +10,8 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
+import litellm
+
 from osspulse.cache.redis_cache import RedisSummaryCache
 from osspulse.delivery.discord_delivery import DiscordDelivery
 from osspulse.delivery.file_delivery import FileDelivery
@@ -30,6 +32,15 @@ from osspulse.summarizer.config import SummarizerConfig
 
 if TYPE_CHECKING:
     from osspulse.ports import SummaryCache
+
+# ---------------------------------------------------------------------------
+# Suppress LiteLLM's verbose stderr banners (Give Feedback URL, LiteLLM.Info
+# lines) that are printed on every error via print() — not the Python logging
+# system. Setting this flag to True disables those print() calls without
+# affecting actual error handling logic or our own logger output.
+# See: litellm/litellm_core_utils/exception_mapping_utils.py
+# ---------------------------------------------------------------------------
+litellm.suppress_debug_info = True
 
 # ---------------------------------------------------------------------------
 # Constants (ADR-006, AC-7-008/022)

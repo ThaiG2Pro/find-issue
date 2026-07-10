@@ -1,16 +1,18 @@
 """GitHub Collector adapter (S2) — implements ``osspulse.ports.GitHubClient``.
 
-Pure I/O: fetches newly-opened issues for one repo via the GitHub REST API and maps them to
-``RawItem``s. It never touches the State Store (S3) nor the LLM (S4) — it depends only on
+Pure I/O: fetches newly-opened issues, releases, and discussions for one repo via the GitHub
+API (REST for issues/releases, GraphQL POST for discussions) and maps them to ``RawItem``s.
+It never touches the State Store (S3) nor the LLM (S4) — it depends only on
 ``osspulse.models`` + httpx (AC-2-015, BR-2-012).
 
 Security invariants (do not break):
 - The GitHub token is set on the httpx client headers at construction and is never stored
   elsewhere, logged, or interpolated into an error/return value (ADR-004, AC-2-009).
-- TLS verification is always on; only GET is issued (AC-2-013).
-- ``base_url`` comes only from config; ``repo`` fills the path only, never host/scheme
-  (AC-2-025). ``repo`` is validated against the shared ``REPO_PATTERN`` before any request
-  (AC-2-014).
+- TLS verification is always on; REST callers use GET, the GraphQL path uses one fixed POST
+  to ``{base_url}/graphql`` with a non-mutating query (ADR-002, AC-V2-006-016).
+- ``base_url`` comes only from config; ``repo`` fills the path/variables only, never
+  host/scheme (AC-2-025). ``repo`` is validated against the shared ``REPO_PATTERN`` before
+  any request (AC-2-014).
 """
 
 import logging
@@ -25,6 +27,7 @@ from osspulse.config import REPO_PATTERN
 from osspulse.github.config import CollectorConfig
 from osspulse.github.errors import (
     AuthError,
+    CollectorError,
     InvalidRepoError,
     NetworkError,
     RateLimitError,
@@ -44,6 +47,37 @@ class _Action(Enum):
     RETRY = auto()
     SKIP_REPO = auto()
     FAIL_FAST = auto()
+
+
+class _GraphQLOutcome(Enum):
+    """Sentinel outcomes for GraphQL 200-payload classification (ADR-003, AC-V2-006-003/014).
+
+    SKIP_REPO — repo not found or Discussions disabled (null connection shape).
+    Returned as a sentinel; the caller WARNs + returns [].
+    The "map" outcome is NOT a sentinel — ``_classify_graphql`` returns the connection
+    dict directly so the cursor loop receives nodes + pageInfo without a second lookup.
+    """
+
+    SKIP_REPO = auto()
+
+
+# ---------------------------------------------------------------------------
+# GraphQL query constant (ADR-004, AC-V2-006-016)
+# Fixed, non-mutating; only owner/name/first/after are variables — never built
+# from untrusted input, never a mutation (BR-V2-006-006).
+# ---------------------------------------------------------------------------
+
+_DISCUSSIONS_QUERY = """
+query($owner: String!, $name: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    discussions(first: $first, after: $after,
+                orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes { number title body url createdAt }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+""".strip()
 
 
 class GitHubCollector:
@@ -128,8 +162,17 @@ class GitHubCollector:
         ) + random.uniform(0, retry.jitter_seconds)
         return min(computed, retry.backoff_ceiling_seconds)
 
-    def _request_with_retry(self, url: str, repo: str) -> httpx.Response:
+    def _request_with_retry(
+        self, url: str, repo: str, *, json_body: dict | None = None
+    ) -> httpx.Response:
         """The ONLY httpx caller. Bounded retry loop (no infinite loop, AC-2-022).
+
+        ``json_body is None`` → ``self._client.get(url)`` (every REST caller, unchanged —
+        GET-only invariant preserved for issues/releases). ``json_body is not None`` →
+        ``self._client.post(url, json=json_body)`` (GraphQL path only — ADR-002).
+
+        The retry loop, ``_classify``, ``_backoff_seconds``, and error messages are
+        shared verbatim for both verbs (BR-V2-006-010).
 
         Retries on the RETRY class (429 / 5xx / secondary rate limit) and on
         ``httpx.TransportError``; raises ``RateLimitError``/``NetworkError`` once the budget
@@ -141,7 +184,10 @@ class GitHubCollector:
             response: httpx.Response | None = None
             transport_failed = False
             try:
-                response = self._client.get(url)
+                if json_body is None:
+                    response = self._client.get(url)
+                else:
+                    response = self._client.post(url, json=json_body)
             except httpx.TransportError:
                 transport_failed = True
 
@@ -211,7 +257,229 @@ class GitHubCollector:
             created_at=created_at,
         )
 
+    def _map_release(self, raw: dict, repo: str) -> RawItem | None:
+        """Map a GitHub release dict to ``RawItem``; guard every field (AC-V2-003-006..011).
+
+        Returns ``None`` (skip) when BOTH ``tag_name`` and ``id`` are missing — cannot key
+        the release (dirty-data tolerance). ``published_at`` is stored in ``created_at``
+        unchanged (BR-V2-003-002 / AC-V2-003-010) — never reformatted.
+        """
+        tag_name = raw.get("tag_name")
+        if not tag_name:
+            # Only skip entirely when both tag_name and id are absent (AC-V2-003-011)
+            if raw.get("id") is None:
+                return None
+            # Fall back to str(id) as item_id — ensures the release can still be keyed
+            tag_name = str(raw["id"])
+        name = raw.get("name")
+        return RawItem(
+            repo=repo,
+            item_type="release",
+            item_id=tag_name,  # AC-V2-003-006: tag_name as identity
+            title=name if name else tag_name,  # AC-V2-003-007: fallback to tag_name
+            body=raw.get("body") or "",  # AC-V2-003-008: null → ""
+            url=raw.get("html_url") or "",  # AC-V2-003-009: null → ""
+            created_at=raw.get("published_at") or "",  # AC-V2-003-010: raw ISO string
+        )
+
+    def _map_discussion(self, node: dict, repo: str) -> RawItem | None:
+        """Map a GraphQL discussion node to ``RawItem``; guard every field (AC-V2-006-005..010).
+
+        Returns ``None`` (skip) when ``number`` is missing — cannot key the discussion
+        (dirty-data tolerance, AC-V2-006-010). ``item_id = str(number)`` renders as ``#42``.
+        ``body`` is the markdown field (not ``bodyText``) — ADR-004. ``created_at`` is the
+        raw ``createdAt`` ISO string, never reformatted.
+        """
+        number = node.get("number")
+        if number is None:
+            return None  # AC-V2-006-010: skip node without a number
+        return RawItem(
+            repo=repo,
+            item_type="discussion",
+            item_id=str(number),  # AC-V2-006-005
+            title=node.get("title") or "",  # AC-V2-006-006: null → ""
+            body=node.get("body") or "",  # AC-V2-006-007: markdown body, null → ""
+            url=node.get("url") or "",  # AC-V2-006-008: null → ""
+            created_at=node.get("createdAt") or "",  # AC-V2-006-009: raw ISO, never reformatted
+        )
+
+    def _classify_graphql(self, payload: dict, repo: str) -> _GraphQLOutcome | dict:
+        """Classify a GraphQL 200 payload — shape-first ordered (ADR-003, RISK-003).
+
+        The check ORDER is load-bearing (the active concern from _handoff.md):
+        1. Null connection SHAPE → SKIP_REPO sentinel (disabled or not-found repo).
+           Checked FIRST because a disabled repo carries BOTH a null connection AND an
+           errors entry — the null-shape guard must fire before the errors-raise.
+        2. Non-empty top-level ``errors`` (and null-shape did NOT fire) → raise.
+           ``RATE_LIMITED`` error type → ``RateLimitError``; anything else → ``CollectorError``.
+        3. Otherwise → return the ``discussions`` connection dict (nodes + pageInfo).
+
+        Does NOT hardcode an ``errors[].type`` string to detect disabled Discussions —
+        detection keys on the null connection SHAPE (BR-V2-006-007, handoff §2 warning).
+        """
+        data = payload.get("data") or {}
+        repo_node = data.get("repository")
+
+        # Step 1 — shape-first: null repository OR null discussions → skip repo (AC-V2-006-003)
+        # This check MUST precede the errors-raise below (ADR-003 active concern).
+        if repo_node is None or repo_node.get("discussions") is None:
+            logger.warning(
+                "skipping repo '%s': Discussions disabled or repo not found (null connection)",
+                repo,
+            )
+            return _GraphQLOutcome.SKIP_REPO
+
+        # Step 2 — non-empty top-level errors that are NOT a null-connection shape (AC-V2-006-014)
+        errors = payload.get("errors")
+        if errors:
+            # Detect RATE_LIMITED to map → RateLimitError (pipeline partial-deliver arm)
+            # Key on error type string ONLY for rate-limit routing — NOT for disabled detection.
+            has_rate_limited = any(
+                (e.get("type") or "").upper() == "RATE_LIMITED"
+                for e in errors
+                if isinstance(e, dict)
+            )
+            if has_rate_limited:
+                raise RateLimitError(f"GraphQL RATE_LIMITED for '{repo}'; retries exhausted")
+            raise CollectorError(f"GraphQL errors for '{repo}': {len(errors)} error(s) returned")
+
+        # Step 3 — map: return the discussions connection (nodes + pageInfo)
+        return repo_node["discussions"]  # type: ignore[return-value]
+
     # -- public API ------------------------------------------------------------
+
+    def fetch_discussions(self, repo: str, lookback_days: int) -> list[RawItem]:
+        """Fetch discussions created within the last ``lookback_days`` for ``repo``.
+
+        Pure I/O. Issues a fixed non-mutating GraphQL POST to ``{base_url}/graphql``
+        ordered ``CREATED_AT DESC``; cursor-paginates via ``pageInfo.hasNextPage``/
+        ``endCursor``; early-stops per-item when ``createdAt < cutoff`` (ADR-001 — same
+        field for ordering and inclusion, no skew); caps at ``max_items_per_repo`` with an
+        info truncation log (AC-V2-006-013).
+
+        GraphQL 200 payload classified (ADR-003): disabled/not-found → WARN + [];
+        non-disabled top-level errors → raise (``RateLimitError`` for ``RATE_LIMITED``,
+        else ``CollectorError``); else map nodes to ``RawItem``.
+
+        Reuses the same authed httpx client, retry policy, and ``CollectorError`` hierarchy
+        as ``fetch_items``/``fetch_releases``. Token never in the query body or any log/error.
+        ``GitHubClient`` Protocol unchanged (AC-V2-006-018).
+        """
+        cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+        self._validate_repo(repo)
+        cfg = self._config
+
+        owner, name = repo.split("/", 1)
+        url = f"{cfg.base_url}/graphql"
+        items: list[RawItem] = []
+        after: str | None = None
+
+        while len(items) < cfg.max_items_per_repo:
+            body = {
+                "query": _DISCUSSIONS_QUERY,
+                "variables": {
+                    "owner": owner,
+                    "name": name,
+                    "first": cfg.page_size,
+                    "after": after,  # None on the first page
+                },
+            }
+            # _request_with_retry handles transport-level 429/5xx/auth unchanged (ADR-002)
+            response = self._request_with_retry(url, repo, json_body=body)
+
+            payload = response.json()
+            result = self._classify_graphql(payload, repo)
+
+            if result is _GraphQLOutcome.SKIP_REPO:
+                return []  # already logged in _classify_graphql (AC-V2-006-003)
+
+            # result is the discussions connection dict (nodes + pageInfo)
+            conn: dict = result  # type: ignore[assignment]
+
+            for node in conn.get("nodes") or []:
+                # ADR-001: per-item early-stop — inclusion and ordering both key on createdAt
+                created_raw = node.get("createdAt")
+                if isinstance(created_raw, str) and _parse_created(created_raw) < cutoff:
+                    return items  # created-desc → everything after is older (AC-V2-006-012)
+
+                item = self._map_discussion(node, repo)
+                if item is not None:
+                    items.append(item)
+                if len(items) >= cfg.max_items_per_repo:
+                    logger.info(
+                        "discussions truncated at %d for %s", cfg.max_items_per_repo, repo
+                    )  # AC-V2-006-013
+                    return items
+
+            page_info = conn.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+            after = page_info.get("endCursor")
+
+        return items
+
+    def fetch_releases(self, repo: str, lookback_days: int) -> list[RawItem]:
+        """Fetch newly-published releases for ``repo`` within the last ``lookback_days``.
+
+        Pure I/O. Mirrors ``fetch_items`` control-flow (ADR-001).
+
+        Pagination: created-desc via ``Link`` rel=next; bounded by ``max_items_per_repo``
+        and the ADR-001 dual-key early-stop:
+          - **STOP** when a release's ``created_at`` < cutoff (endpoint's sort key —
+            the "everything after is older" guarantee only holds against this field).
+          - **SKIP (continue)** when ``published_at`` is None (draft) or < cutoff
+            (created-recently but published-before-window) — do NOT stop.
+          - **INCLUDE** when ``published_at`` >= cutoff (in-window published release).
+        Prereleases are included unconditionally (AC-V2-003-004).
+        Returns ``[]`` for a skipped repo (404/410, AC-V2-003-017).
+
+        Security: reuses the same authed httpx client, GET-only, TLS on, base_url from
+        config only (BR-V2-003-005 / AC-V2-003-015). Token never logged/returned.
+        Same retry policy as fetch_items (AC-V2-003-016). No state/LLM access
+        (AC-V2-003-018). GitHubClient Protocol unchanged (ADR-002).
+        """
+        cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+        self._validate_repo(repo)
+        cfg = self._config
+
+        url: str | None = f"{cfg.base_url}/repos/{repo}/releases?per_page={cfg.page_size}"
+        items: list[RawItem] = []
+
+        while url and len(items) < cfg.max_items_per_repo:
+            response = self._request_with_retry(url, repo)
+            if self._classify(response) is _Action.SKIP_REPO:
+                logger.warning(
+                    "skipping repo '%s' releases (status %d)", repo, response.status_code
+                )
+                return []
+
+            for raw in response.json():
+                # ADR-001: early-stop uses created_at (the endpoint's sort key)
+                created = raw.get("created_at")
+                if isinstance(created, str) and _parse_created(created) < cutoff:
+                    return items  # created-desc → everything after is older (AC-V2-003-013)
+
+                # Drafts: skip without stopping (published_at is None → not yet published)
+                published = raw.get("published_at")
+                if published is None:
+                    continue  # AC-V2-003-003: draft — do NOT return, only continue
+
+                # Inclusion filter: published within the lookback window
+                if not isinstance(published, str) or _parse_created(published) < cutoff:
+                    continue  # AC-V2-003-002: published before window → skip item
+
+                item = self._map_release(raw, repo)
+                if item is not None:
+                    items.append(item)
+                if len(items) >= cfg.max_items_per_repo:
+                    logger.info(
+                        "releases truncated at %d for %s", cfg.max_items_per_repo, repo
+                    )  # AC-V2-003-014
+                    return items
+
+            url = self._next_link(response.headers.get("Link"))
+
+        return items
 
     def fetch_items(self, repo: str, lookback_days: int) -> list[RawItem]:
         """Fetch newly-opened issues for ``repo`` created within the last ``lookback_days``.

@@ -181,9 +181,27 @@ def _collect_all(
                     raise  # propagate fatal / terminal errors to outer arms
                 logger.warning("skipped releases for %s: %s", repo_name, type(exc).__name__)
                 releases = []
-            # AC-V2-003-019: concatenate before partition so _partition_new sees one list
-            # and mark_seen records the full issues+releases set in one call (R1 invariant).
-            items = issues + releases
+            # AC-V2-006: inner guard wraps ONLY fetch_discussions — mirrors the release guard.
+            # Issues and releases already collected survive a discussion-fetch failure.
+            # AuthError + terminal RateLimitError are deliberately NOT caught here —
+            # they must propagate to the outer arms so fatal/partial-deliver semantics
+            # (AC-7-005 / AC-7-017) are preserved (v2-003 memory lesson: AuthError ⊂
+            # CollectorError — never swallow it in an inner guard).
+            try:
+                discussions = collector.fetch_discussions(repo_name, config.lookback_days)
+            except (InvalidRepoError, NetworkError) as exc:
+                logger.warning("skipped discussions for %s: %s", repo_name, type(exc).__name__)
+                discussions = []
+            except CollectorError as exc:
+                if isinstance(exc, (AuthError, RateLimitError)):
+                    raise  # propagate fatal / terminal errors to outer arms (AC-V2-006-022)
+                logger.warning("skipped discussions for %s: %s", repo_name, type(exc).__name__)
+                discussions = []
+
+            # AC-V2-006-019: concatenate issues + releases + discussions before partition
+            # so _partition_new sees one list and mark_seen records the full 3-source set
+            # in one call (R1 invariant — one _partition_new BEFORE one mark_seen).
+            items = issues + releases + discussions
             # R1 (ADR-001): partition BEFORE mark_seen — snapshot is_seen while it still
             # reflects the PREVIOUS run's state, not this run's writes.
             new, seen = _partition_new(items, state)
@@ -199,9 +217,13 @@ def _collect_all(
             stats["new"] += len(new)
             # AC-7-015: exactly one outcome log line per repo, no secret
             logger.info(
-                "collected %d item(s) from %s (seen=%d new=%d)",
+                "collected %d item(s) from %s "
+                "(issues=%d releases=%d discussions=%d seen=%d new=%d)",
                 len(items),
                 repo_name,
+                len(issues),
+                len(releases),
+                len(discussions),
                 len(seen),
                 len(new),
             )

@@ -20,8 +20,9 @@
 
 ## Testing
 - **Test framework**: **pytest** (with mocks for the GitHub and LLM clients)
-- **Coverage tooling**: **pytest-cov** (`tool.coverage`); `fail_under = 80`. `ports.py` and
-  `pipeline.py` are `omit`-ted from coverage in V1 (pure-interface / wiring not yet exercised).
+- **Coverage tooling**: **pytest-cov** (`tool.coverage`); `fail_under = 80`. `ports.py` is
+  `omit`-ted from coverage (pure-interface Protocols). `pipeline.py` is now implemented and
+  covered (S7 scheduler-cli-7) and is no longer omitted.
 - **Coverage gate**: ≥ 80% lines
 - **Integration test policy**: GitHub and LLM clients are mocked — tests MUST NOT hit real APIs. Redis may use a fake/in-memory client or a local test instance.
 

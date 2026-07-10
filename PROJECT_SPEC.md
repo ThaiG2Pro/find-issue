@@ -163,6 +163,20 @@ Tiêu chí "xong V1": chạy `osspulse run` trên 3–5 repo thật → ra một
   nhận) — *hiển thị để hiểu, không phải để đua tốc độ*.
 - (Thử nghiệm) chỉ số "repo này có welcome contributor mới không": thời gian phản
   hồi PR, tỉ lệ PR newcomer được merge.
+- **Push đa kênh (multi-channel delivery)**: cho phép gửi digest tới nhiều đích cùng
+  lúc (vd vừa ghi file vừa đẩy Discord), thay vì chọn 1 đích/lần chạy như V2. Kèm mở
+  rộng thêm kênh **Slack webhook** và **Email (SMTP)**. _Nguồn: các option bị loại khi
+  chốt V2-005 (CLAR-1 chọn Discord trước, CLAR-2 chọn single-destination) — để dành vì
+  V2 ưu tiên "làm 1 kênh cho chạy được" trước khi orchestrate nhiều kênh._
+
+### V4 — "Vận hành bền" (reliability, chỉ làm khi có nhu cầu thật)
+- **Push có retry + backoff**: khi kênh push trả lỗi transient (HTTP 5xx, hoặc 429 kèm
+  `Retry-After`), thử lại vài lần với exponential backoff thay vì fail ngay. _Nguồn:
+  option bị loại ở CLAR-3 (V2 chọn fail-fast fatal cho đơn giản) — nâng cấp độ bền khi
+  thực tế gặp nhiều lỗi tạm thời._
+- **Discord rich embeds**: render digest thành embed (màu, field, tiêu đề repo) thay vì
+  plain Markdown, tận dụng giới hạn 4096/6000 ký tự lớn hơn của embed. _Nguồn: option bị
+  loại ở CLAR-4 (V2 chọn plain content cho đơn giản, tránh embed schema)._
 
 ### Out of Scope (không làm, cố ý)
 - ❌ Scan/crawl toàn bộ GitHub hoặc "mọi repo có GFI".

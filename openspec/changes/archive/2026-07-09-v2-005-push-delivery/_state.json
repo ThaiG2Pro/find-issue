@@ -105,20 +105,10 @@
     "Partial multi-message delivery": "if message k of n fails, 1..k-1 already delivered; no rollback"
   },
   "next_action": {
-    "agent": "sdlc",
-    "command": "approve s4",
-    "prerequisite": "dev-test-report.md created, coverage 96% >= 80%, all 17 tasks [x]",
-    "blocker": null,
-    "priority_reading": [
-      "_handoff.md",
-      "qa-report.md"
-    ],
-    "watch_items": [
-      "pipeline.py:291-294 discord elif branch — recommend follow-up fixture",
-      "pip-audit missing in CI — add before next release",
-      "RISK-1 partial multi-message — accepted behavior, note in release docs"
-    ],
-    "routes_to": "developer /s6 V2-005 push-delivery — execute _release-notes.md tasks then openspec archive"
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
   },
   "memory_writeback": {
     "analyst": "appended",
@@ -129,5 +119,8 @@
   "checkpoints": {
     "cp3_1": "pass",
     "cp10_1": "pass"
+  },
+  "deploy_status": {
+    "master": "pending"
   }
 }

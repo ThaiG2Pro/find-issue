@@ -35,21 +35,29 @@ another pipeline stage module.
 
 ### Requirement: The run iterates the watchlist with per-repo failure isolation
 The run SHALL process each repo in `config.watched_repos` independently so that one repo's
-recoverable failure does not abort the whole run. The run SHALL catch a recoverable collector error
-(`InvalidRepoError`, `NetworkError`, or a non-auth `RateLimitError`/`CollectorError`) for a single
-repo, log a warning, skip that repo, and continue with the remaining repos. An `AuthError` SHALL be
-treated as fatal because all repos share one token. The run SHALL still deliver a digest of whatever
-was collected when at least one repo succeeded or zero repos succeeded.
+recoverable failure does not abort the whole run. For each repo the run SHALL collect newly opened
+issues (`fetch_items`), newly published releases (`fetch_releases`) AND newly created discussions
+(`fetch_discussions`) and SHALL concatenate them into that repo's contribution to the single
+`list[RawItem]` that flows into the delta → summarize → render → deliver path. The run SHALL catch a
+recoverable collector error (`InvalidRepoError`, `NetworkError`, or a non-auth
+`RateLimitError`/`CollectorError`) for a single repo — from the issue, release, or discussion fetch —
+log a warning, skip that portion, and continue with the remaining repos. A repo whose Discussions are
+disabled (surfaced by the collector as an empty discussion list) SHALL simply contribute no
+discussion items, with no error. An `AuthError` SHALL be treated as fatal because all repos share one
+token. The run SHALL still deliver a digest of whatever was collected when at least one repo succeeded
+or zero repos succeeded. Discussion collection SHALL add no new pipeline stage and SHALL NOT cause any
+stage module to import another; `pipeline.py` remains the only cross-stage importer.
 
-> ACs: AC-7-004 [CONFIRMED], AC-7-005 [CONFIRMED], AC-7-006 [CONFIRMED], AC-7-017 [CONFIRMED]
-> Business rules: BR-7-001, BR-7-002, BR-7-008
+> ACs: AC-7-004 [CONFIRMED], AC-7-005 [CONFIRMED], AC-7-006 [CONFIRMED], AC-7-017 [CONFIRMED], AC-V2-006-019 [CONFIRMED], AC-V2-006-020 [CONFIRMED], AC-V2-006-021 [CONFIRMED], AC-V2-006-022 [CONFIRMED]
+> Business rules: BR-7-001, BR-7-002, BR-7-008, BR-V2-006-004, BR-V2-006-008, BR-V2-006-009
+> Integration: INT-V2-006-002, INT-V2-006-003, INT-V2-006-004, INT-V2-006-005
 
 #### Scenario: One repo fails, others succeed (AC-7-004) [CONFIRMED]
 - **WHEN** one repo in the watchlist raises `InvalidRepoError` (e.g. 404 / renamed / private) and the others succeed
 - **THEN** the failing repo is logged at WARN and skipped, the successful repos are summarized and rendered, and the command exits 0
 
 #### Scenario: Authentication failure is fatal (AC-7-005) [CONFIRMED]
-- **WHEN** the collector raises `AuthError` (401/403 — the shared token is invalid or revoked)
+- **WHEN** the collector raises `AuthError` (401/403 — the shared token is invalid or revoked) on the issue, release, or discussion fetch
 - **THEN** the run stops immediately, prints `Error: <message>` on stderr that contains no token value and no Python traceback, and the command exits 1
 
 #### Scenario: All repos fail to collect (AC-7-006) [CONFIRMED]
@@ -59,6 +67,22 @@ was collected when at least one repo succeeded or zero repos succeeded.
 #### Scenario: Rate limit terminates collection but delivers partial results (AC-7-017) [CONFIRMED]
 - **WHEN** after collecting some repos the collector raises a terminal `RateLimitError` (its own backoff exhausted) on a later repo
 - **THEN** the run stops collecting further repos, logs the rate-limit reason at WARN, renders+delivers the items already collected, and the command exits 0
+
+#### Scenario: Each repo is collected for issues, releases and discussions (AC-V2-006-019) [CONFIRMED]
+- **WHEN** a repo returns 2 new issues, 1 new release and 3 new discussions within the window
+- **THEN** the pipeline collects all 6 as `RawItem`s (2 `issue`, 1 `release`, 3 `discussion`) and concatenates them into the single item list for that repo before the delta step
+
+#### Scenario: Discussions flow through the delta filter and are marked seen (AC-V2-006-020) [CONFIRMED]
+- **WHEN** a discussion collected on run 1 is collected again on run 2 with `delta_enabled = true`
+- **THEN** run 1 renders and records the discussion seen (`repo + "discussion" + number`), and run 2 suppresses it as previously-seen — reusing the v2-001 delta filter and state store with no change
+
+#### Scenario: Discussions render under the existing Discussion group with no renderer change (AC-V2-006-021) [CONFIRMED]
+- **WHEN** a repo's collected items include discussions and the digest is rendered
+- **THEN** the discussions appear under that repo's `### Discussion (N)` group (between issues and releases), produced by the unchanged renderer whose `GROUP_ORDER` already includes `"discussion"`
+
+#### Scenario: A per-repo discussion-fetch failure is isolated (AC-V2-006-022) [CONFIRMED]
+- **WHEN** a repo's `fetch_discussions` raises a recoverable error while its `fetch_items`/`fetch_releases` succeeded
+- **THEN** the discussion failure is logged at WARN and that repo's discussions are skipped, but the issues and releases already collected for that repo (and all other repos) are still summarized, rendered and delivered, and the command exits 0
 
 ### Requirement: Summarization is wired with graceful degradation and a no-LLM path
 The pipeline SHALL summarize collected items through the batch entry point
@@ -93,21 +117,24 @@ continues. The pipeline SHALL skip the LLM entirely and render an unsummarized d
 
 ### Requirement: The run records collected items as seen for idempotency
 The run SHALL record each collected item in the State Store via `mark_seen` so re-runs are
-idempotent and a future V2 delta can use the recorded state. State writes SHALL be atomic and SHALL
-preserve a write-once `first_seen_at`. The run SHALL NOT, in V1, filter already-seen items out of
-the digest; recording seen state is V1 and seen-based suppression is V2 delta.
+idempotent and the recorded state drives the V2 delta filter. State writes SHALL be atomic and
+SHALL preserve a write-once `first_seen_at`. When `config.delta_enabled` is `true` (the V2
+default), the run SHALL filter already-seen items out of the digest so a re-run over unchanged
+activity renders the "no new items" document; when `delta_enabled` is `false` the run SHALL NOT
+suppress seen items (preserving the original V1 behavior). Recording seen state SHALL remain
+decoupled from summarization outcome.
 
 > ACs: AC-7-010 [CONFIRMED], AC-7-011 [CONFIRMED], AC-7-019 [CONFIRMED]
-> Business rules: BR-7-003, BR-7-011
+> Business rules: BR-7-003, BR-7-011, BR-V2-001-001
 > Integration: INT-7-003
 
 #### Scenario: Collected items are marked seen (AC-7-010) [CONFIRMED]
 - **WHEN** a run collects N items across the watchlist
 - **THEN** each item is recorded via `mark_seen` and the state file is written atomically, and re-running preserves each item's original `first_seen_at`
 
-#### Scenario: V1 does not filter seen items (AC-7-011) [CONFIRMED]
-- **WHEN** a run is executed twice with no new GitHub activity (the same issues are returned both times)
-- **THEN** both runs render the same items (V1 records seen but does not suppress them) and produce a byte-identical digest
+#### Scenario: V2 delta suppresses previously-seen items on re-run (AC-7-011) [CONFIRMED]
+- **WHEN** a run is executed twice with no new GitHub activity (the same issues are returned both times) and `delta_enabled = true`
+- **THEN** the first run renders the items and records them seen, and the second run renders the "no new items in the last N days" document (previously-seen items are suppressed) — this replaces the V1 behavior where both runs rendered identical items
 
 #### Scenario: Marking seen is decoupled from summarization outcome (AC-7-019) [CONFIRMED]
 - **WHEN** an item is collected and marked seen but its summarization later fails and it is skipped
@@ -157,4 +184,245 @@ any secret value or a full stack trace for handled errors.
 #### Scenario: A run summary line is logged at the end (AC-7-021) [CONFIRMED]
 - **WHEN** a run completes (successfully or with some repos skipped)
 - **THEN** a final summary line is logged with total repos processed, total items collected, total summarized, and total skipped
+
+### Requirement: The run filters out previously-seen items when delta is enabled
+The run SHALL suppress from the digest any collected item that was already recorded as seen on a
+previous run, when `config.delta_enabled` is `true`. An item SHALL count as NEW if and only if
+`state.is_seen(repo, item_type, item_id)` returns `false` at the instant BEFORE this run records
+it via `mark_seen`. The run SHALL still call `mark_seen` on ALL collected items (new and
+previously-seen alike) so `first_seen_at` history is preserved and idempotency is maintained; the
+filter SHALL affect only WHICH items are summarized and rendered, never WHICH items are recorded.
+This applies per collected item across the whole watchlist.
+
+> ACs: AC-V2-001-001 [CONFIRMED], AC-V2-001-004 [CONFIRMED], AC-V2-001-005 [CONFIRMED], AC-V2-001-010 [CONFIRMED]
+> Business rules: BR-V2-001-001, BR-V2-001-002
+> Modifies: scheduler-cli AC-7-011 (see MODIFIED Requirements)
+
+#### Scenario: First run shows all items (empty prior state) (AC-V2-001-001) [CONFIRMED]
+- **WHEN** `osspulse run` executes with `delta_enabled = true` against an empty/missing state file and a repo returns 3 new issues
+- **THEN** all 3 issues are rendered (nothing was previously seen) and all 3 are recorded via `mark_seen`
+
+#### Scenario: Item is NEW iff not seen before this run's mark_seen (AC-V2-001-004) [CONFIRMED]
+- **WHEN** a repo returns issue #6 (never seen) and issue #5 (recorded as seen on a prior run), with `delta_enabled = true`
+- **THEN** only #6 is passed to the summarizer/renderer, while BOTH #5 and #6 are recorded via `mark_seen` (the seen-snapshot is taken before `mark_seen`, so #6 — first seen this run — still appears)
+
+#### Scenario: Second run with no new activity suppresses everything (AC-V2-001-005) [CONFIRMED]
+- **WHEN** a run collects the exact same issues a previous run already recorded as seen, with `delta_enabled = true`
+- **THEN** the filtered list is empty, `render([])` returns the "no new items in the last N days" document, that document is delivered, and the command exits 0
+
+#### Scenario: mark_seen is called for every collected item regardless of filtering or delta_enabled (AC-V2-001-010) [CONFIRMED]
+- **WHEN** a run collects N items across the watchlist, of which M are already previously-seen (0 ≤ M ≤ N), for BOTH `delta_enabled = true` and `delta_enabled = false`
+- **THEN** `mark_seen` is invoked exactly N times (once per collected item) in both configurations — the count of recorded items equals the count of collected items and is independent of `delta_enabled` and of how many items the filter suppresses; only the number of items passed to summarize/render differs (N when `false`, N−M when `true`). This is the direct guard against a filter-before-`mark_seen` reorder (R1): any ordering bug that skips recording a filtered item makes this count drop below N and fails the test.
+
+### Requirement: Delta suppression is config-gated and defaults to enabled
+The run SHALL read a `[delta]` config section whose `enabled` field (boolean, default `true`)
+determines whether the delta filter is applied. `config.py` SHALL parse and validate the
+`[delta]` section at load time and SHALL fail fast with a `ConfigError` on an invalid value
+(non-boolean), never at run time. When the section is absent the run SHALL default to
+`delta_enabled = true`. When `delta_enabled` is `false` the run SHALL behave exactly as V1 (no
+suppression). The `Config` dataclass SHALL gain a `delta_enabled: bool` field.
+
+> ACs: AC-V2-001-002 [CONFIRMED], AC-V2-001-006 [CONFIRMED], AC-V2-001-007 [CONFIRMED]
+> Business rules: BR-V2-001-003
+> Integration: INT-V2-001-001 (consumes state-store is_seen)
+
+#### Scenario: delta defaults to enabled when the section is absent (AC-V2-001-002) [CONFIRMED]
+- **WHEN** a config file has no `[delta]` section
+- **THEN** `load_config` returns a `Config` with `delta_enabled = true`
+
+#### Scenario: delta_enabled=false reproduces V1 behavior (AC-V2-001-006) [CONFIRMED]
+- **WHEN** the config sets `[delta] enabled = false` and a run collects issues already recorded as seen
+- **THEN** all collected items are rendered (no suppression) and the digest is byte-identical to a V1 run over the same items
+
+#### Scenario: An invalid delta.enabled value fails config validation (AC-V2-001-007) [CONFIRMED]
+- **WHEN** the config has `[delta]` with `enabled = "yes"` (or any non-boolean)
+- **THEN** `load_config` raises `ConfigError` with a clear message before the pipeline runs
+
+### Requirement: Delta operates only in the pipeline and reuses the frozen state helpers
+The delta filter SHALL live entirely in `osspulse.pipeline` and SHALL reuse
+`JsonFileStateStore.is_seen` unchanged. This change SHALL NOT alter the `StateStore` Protocol, add
+methods to it, or change the signatures of `is_seen`/`mark_seen`. No pipeline stage module SHALL
+import another stage module (the existing AC-7-002 boundary is preserved).
+
+> ACs: AC-V2-001-003 [ASSUMED], AC-V2-001-008 [CONFIRMED], AC-V2-001-009 [CONFIRMED]
+> Business rules: BR-V2-001-004
+> Integration: INT-V2-001-001
+
+#### Scenario: State Store Protocol and helpers are unchanged (AC-V2-001-003) [ASSUMED]
+- **WHEN** the delta feature is added
+- **THEN** `osspulse.ports.StateStore` still declares exactly `load() -> dict` and `save(state: dict) -> None`, and `is_seen`/`mark_seen` keep their existing signatures — the filter calls `is_seen` from `pipeline.py` only
+
+#### Scenario: Empty-after-filter still delivers the no-new-items doc, never suppresses delivery (AC-V2-001-008) [CONFIRMED]
+- **WHEN** every collected item is previously-seen and `delta_enabled = true`
+- **THEN** delivery still runs exactly once (the "no new items" document is written to file / printed to stdout); the run never skips delivery and never produces an empty file
+
+#### Scenario: A corrupt or unreadable state file surfaces as a run error, never silently disables the filter (AC-V2-001-009) [CONFIRMED]
+- **WHEN** `delta_enabled = true` and the state file is corrupt or unreadable so `JsonFileStateStore.load()` raises `StateError` (AC-3-009)
+- **THEN** the run surfaces the error as `Error: <message>` on stderr and exits 1; the run SHALL NOT swallow the error, SHALL NOT silently treat all items as new, and SHALL NOT proceed with the filter disabled
+
+### Requirement: osspulse schedule generates an OS crontab entry for osspulse run
+The `osspulse schedule` command SHALL generate a ready-to-use OS crontab entry that invokes
+`osspulse run` on a cadence, printing the line to stdout by default so nothing in the operator's
+environment is mutated implicitly. The cadence SHALL be selectable via `--preset {hourly|daily|weekly}`
+or `--cron "<expr>"`; when neither is given the command SHALL default to a daily schedule at 08:00
+local time. The generated invocation SHALL use absolute paths for both the `osspulse` binary and the
+config file so the entry works under cron's minimal cwd/PATH. This is the primary scheduling
+mechanism per PROJECT_SPEC §8 (OS cron), and osspulse SHALL remain single-shot with timing delegated
+to cron.
+
+> ACs: AC-V2-002-001 [CONFIRMED], AC-V2-002-002 [CONFIRMED], AC-V2-002-003 [CONFIRMED], AC-V2-002-004 [CONFIRMED], AC-V2-002-005 [CONFIRMED], AC-V2-002-008 [CONFIRMED]
+> Business rules: BR-V2-002-006, BR-V2-002-007, BR-V2-002-001
+> Integration: INT-V2-002-002
+
+#### Scenario: Bare schedule prints a daily crontab line (AC-V2-002-001) [CONFIRMED]
+- **WHEN** `osspulse schedule` is invoked with no cadence flag
+- **THEN** it prints one crontab line to stdout that runs `osspulse run` on the default daily schedule and exits 0, without touching the operator's crontab
+
+#### Scenario: Explicit cron expression is used verbatim (AC-V2-002-002) [CONFIRMED]
+- **WHEN** `osspulse schedule --cron "30 6 * * 1"` is invoked with a valid expression
+- **THEN** the printed crontab line begins with `30 6 * * 1` and invokes `osspulse run`
+
+#### Scenario: Preset maps to a standard expression (AC-V2-002-003) [CONFIRMED]
+- **WHEN** `osspulse schedule --preset hourly` (and likewise `daily`, `weekly`) is invoked
+- **THEN** the printed line uses the corresponding standard cron expression (`hourly` → `0 * * * *`, `daily` → `0 8 * * *`, `weekly` → `0 8 * * 1`)
+
+#### Scenario: Generated invocation uses absolute paths (AC-V2-002-004) [CONFIRMED]
+- **WHEN** any crontab line is generated
+- **THEN** both the `osspulse` executable and the `--config` path in the line are absolute paths (the binary is resolved via `shutil.which("osspulse")`, falling back to an absolute resolution of `sys.argv[0]`; the config path is resolved to its absolute form), never relative, so the entry runs correctly under cron's minimal working directory and minimal PATH — and the command does NOT attempt to verify the binary against the cron daemon's PATH (emitting the absolute path makes cron-PATH verification unnecessary)
+
+#### Scenario: No cadence flag defaults to daily 08:00 local (AC-V2-002-008) [CONFIRMED]
+- **WHEN** `osspulse schedule` is invoked with neither `--cron` nor `--preset`
+- **THEN** the generated expression is `0 8 * * *` (daily 08:00 in the system local timezone)
+
+#### Scenario: Generated crontab line contains no secret value (AC-V2-002-005) [CONFIRMED]
+- **WHEN** `osspulse schedule` generates a crontab line in an environment where `GITHUB_TOKEN` and any LLM key are set
+- **THEN** neither the token nor the api-key value appears anywhere in the generated line — the line references the config / environment, not the raw secret
+
+### Requirement: Schedule specification is validated before any write
+The command SHALL validate the resolved schedule specification before performing any file write or
+crontab mutation so an invalid input fails fast with no partial side effect. An invalid cron
+expression SHALL surface as `Error: <message>` on stderr with no Python traceback and exit 1, and
+supplying both `--cron` and `--preset` SHALL be rejected as mutually exclusive.
+
+> ACs: AC-V2-002-006 [CONFIRMED], AC-V2-002-007 [CONFIRMED]
+> Business rules: BR-V2-002-003
+
+#### Scenario: Invalid cron expression fails fast (AC-V2-002-006) [CONFIRMED]
+- **WHEN** `osspulse schedule --cron "99 * * * *"` (an out-of-range field) is invoked
+- **THEN** the command prints `Error: <message>` on stderr, shows no traceback, exits 1, and neither prints a crontab line nor mutates any crontab
+
+#### Scenario: --cron and --preset are mutually exclusive (AC-V2-002-007) [CONFIRMED]
+- **WHEN** `osspulse schedule --cron "0 8 * * *" --preset daily` is invoked
+- **THEN** the command reports the flags are mutually exclusive on stderr and exits 1 without generating anything
+
+### Requirement: schedule --install manages a marker-delimited crontab block idempotently
+The `osspulse schedule --install` command SHALL install the generated entry inside a
+marker-delimited managed block in the invoking user's crontab so repeated installs never create
+duplicate entries and all crontab content outside the managed block is preserved verbatim.
+Installation SHALL be opt-in (default behavior is print-only). `--uninstall` SHALL remove only the
+managed block, and SHALL be a no-op exit 0 when no managed block is present. The command SHALL
+operate on the invoking user's crontab only and SHALL never use elevated privileges.
+
+> ACs: AC-V2-002-009 [CONFIRMED], AC-V2-002-010 [CONFIRMED], AC-V2-002-011 [CONFIRMED], AC-V2-002-012 [CONFIRMED], AC-V2-002-013 [CONFIRMED]
+> Business rules: BR-V2-002-002
+> Integration: INT-V2-002-001
+
+#### Scenario: Install adds a managed block (AC-V2-002-009) [CONFIRMED]
+- **WHEN** `osspulse schedule --install` is invoked and the user crontab has no osspulse block
+- **THEN** a marker-delimited block (e.g. `# >>> osspulse >>>` … `# <<< osspulse <<<`) containing the cron line is added to the crontab and the command exits 0
+
+#### Scenario: Re-install is idempotent (AC-V2-002-010) [CONFIRMED]
+- **WHEN** `osspulse schedule --install` is invoked twice (or with a changed cadence)
+- **THEN** the managed block is replaced in place and the crontab contains exactly one osspulse managed block (no duplicate entries)
+
+#### Scenario: Install preserves unrelated crontab lines (AC-V2-002-011) [CONFIRMED]
+- **WHEN** the user crontab already contains unrelated jobs and `--install` runs
+- **THEN** every line outside the osspulse managed block is preserved byte-for-byte
+
+#### Scenario: Uninstall removes only the managed block (AC-V2-002-012) [CONFIRMED]
+- **WHEN** `osspulse schedule --uninstall` is invoked
+- **THEN** only the osspulse managed block is removed, unrelated lines remain, and when no block exists the command is a no-op that exits 0
+
+#### Scenario: crontab command unavailable is reported clearly (AC-V2-002-013) [CONFIRMED]
+- **WHEN** `--install` or `--uninstall` runs on a host with no `crontab` command on PATH
+- **THEN** the command prints `Error: <message>` on stderr, shows no traceback, and exits 1
+
+#### Scenario: Install writes the absolute-path line without verifying the cron daemon PATH (AC-V2-002-024) [CONFIRMED]
+- **WHEN** `osspulse schedule --install` installs the managed block
+- **THEN** the installed cron line invokes the `shutil.which`/`sys.argv[0]`-resolved absolute `osspulse` binary path (AC-V2-002-004), and the command does NOT probe or assert the binary's presence on the cron daemon's PATH — because the emitted absolute path is independent of cron's minimal PATH, no such verification is performed
+
+### Requirement: schedule --github-actions emits a secretless CI cron workflow
+The `osspulse schedule --github-actions` command SHALL emit a GitHub Actions workflow that runs
+`osspulse run` on an `on.schedule.cron` trigger, referencing the repository secrets store for the
+GitHub token and any LLM key so no secret value is ever inlined. The generated workflow SHALL
+document that GitHub Actions cron is evaluated in UTC. With `--output PATH` the workflow SHALL be
+written to that path; an unwritable destination SHALL fail with `Error: <message>` exit 1 and leave
+no partial file.
+
+> ACs: AC-V2-002-014 [CONFIRMED], AC-V2-002-015 [CONFIRMED], AC-V2-002-016 [CONFIRMED], AC-V2-002-017 [CONFIRMED]
+> Business rules: BR-V2-002-001
+> Integration: INT-V2-002-004
+
+#### Scenario: Workflow YAML has a schedule trigger (AC-V2-002-014) [CONFIRMED]
+- **WHEN** `osspulse schedule --github-actions` is invoked
+- **THEN** the emitted YAML is a valid workflow containing an `on.schedule` with a `cron` expression and a job step that runs `osspulse run`
+
+#### Scenario: Workflow references secrets, never inlines them (AC-V2-002-015) [CONFIRMED]
+- **WHEN** a workflow is generated in an environment where `GITHUB_TOKEN`/LLM key are set
+- **THEN** the token and key are referenced via `${{ secrets.* }}` and neither raw value appears anywhere in the generated YAML
+
+#### Scenario: --output writes a file, unwritable path errors cleanly (AC-V2-002-016) [CONFIRMED]
+- **WHEN** `--github-actions --output <path>` is given a path whose parent directory is not writable
+- **THEN** the command prints `Error: <message>` on stderr, exits 1, and writes no partial file
+
+#### Scenario: Workflow documents UTC cron semantics (AC-V2-002-017) [CONFIRMED]
+- **WHEN** a workflow is generated
+- **THEN** the YAML includes a comment noting that GitHub Actions `schedule.cron` is evaluated in UTC (distinct from OS cron's local time)
+
+### Requirement: osspulse run is cron-safe for unattended execution
+The `osspulse run` command SHALL be safe to run unattended so that a cron/CI invocation never
+blocks on input and produces deterministic, cron-friendly output. The command SHALL never prompt
+and SHALL require no TTY, SHALL keep the deterministic exit-code contract (0 on success including
+the no-new-items case; 1 on fatal ConfigError/AuthError/DeliveryError/StateError), and SHALL emit
+no ANSI color codes when stdout is not a TTY.
+
+> ACs: AC-V2-002-018 [CONFIRMED], AC-V2-002-019 [CONFIRMED], AC-V2-002-020 [CONFIRMED]
+> Business rules: BR-V2-002-007
+> Integration: INT-V2-002-002
+
+#### Scenario: Run never prompts and needs no TTY (AC-V2-002-018) [CONFIRMED]
+- **WHEN** `osspulse run` is invoked with stdin/stdout not attached to a terminal (as under cron)
+- **THEN** the command completes the pipeline without ever awaiting interactive input
+
+#### Scenario: Exit codes are deterministic for cron (AC-V2-002-019) [CONFIRMED]
+- **WHEN** `osspulse run` completes a scheduled run
+- **THEN** it exits 0 on success (including a delivered no-new-items digest) and exits 1 only on the established fatal errors, so cron can distinguish success from failure
+
+#### Scenario: No ANSI color when not a TTY (AC-V2-002-020) [CONFIRMED]
+- **WHEN** `osspulse run` writes to a non-TTY stdout (redirected to a file or cron mail)
+- **THEN** the output contains no ANSI escape/color sequences
+
+### Requirement: osspulse run enforces a single-instance lock to prevent overlapping schedules
+The `osspulse run` command SHALL acquire an exclusive single-instance lock before executing the
+pipeline so that at most one run mutates a given state file at a time, preventing a fast cron
+cadence from racing two pipelines over the JSON state. The lock SHALL be co-located with the state
+it protects (under `state_path.parent`). A second run that finds the lock held SHALL log a WARN and
+exit 0 (a benign skip, not a failure), and the lock SHALL be released automatically on process exit
+including an abnormal termination so a crashed run leaves no stale-lock deadlock.
+
+> ACs: AC-V2-002-021 [CONFIRMED], AC-V2-002-022 [CONFIRMED], AC-V2-002-023 [CONFIRMED]
+> Business rules: BR-V2-002-004, BR-V2-002-005
+> Integration: INT-V2-002-003
+
+#### Scenario: Run acquires the lock before the pipeline (AC-V2-002-021) [CONFIRMED]
+- **WHEN** `osspulse run` starts
+- **THEN** it acquires an exclusive lock under `state_path.parent` before invoking `run_pipeline`, and releases it when the run finishes
+
+#### Scenario: Overlapping run skips benignly (AC-V2-002-022) [CONFIRMED]
+- **WHEN** a second `osspulse run` starts while a first run still holds the lock
+- **THEN** the second run does not execute the pipeline, logs a WARN that a run is already in progress, and exits **0** (a benign skip — deliberately NOT a distinct non-zero "skipped" code, so an overrunning cron cadence never emails a spurious failure)
+
+#### Scenario: Lock auto-releases on crash (AC-V2-002-023) [CONFIRMED]
+- **WHEN** a run holding the lock is terminated abnormally (e.g. `kill -9`)
+- **THEN** the next scheduled run can acquire the lock (the `fcntl.flock` advisory lock is released by the OS kernel on process death) and is not blocked by a stale lock — no manual staleness heuristic (pidfile age / mtime timeout) is required
 

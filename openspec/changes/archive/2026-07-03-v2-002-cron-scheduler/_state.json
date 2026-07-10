@@ -1,0 +1,159 @@
+{
+  "ticket_id": "V2-002",
+  "feature_slug": "cron-scheduler",
+  "change_name": "v2-002-cron-scheduler",
+  "type": "feature",
+  "rigor": "lite",
+  "testcase_export": "md",
+  "phases": ["S1", "S2", "S3", "S4", "S5", "S6"],
+  "isolation": {
+    "method": "branch",
+    "branch": "feature/V2-002-cron-scheduler",
+    "worktree_path": null,
+    "base_branch": "feature/V2-001-delta-filter",
+    "note": "Branch created at S4 start."
+  },
+  "current_phase": "S6",
+  "deploy_status": {
+    "dev": "pending",
+    "master": "pending"
+  },
+  "gates": {
+    "S2": {
+      "gate": "SPEC LOCK",
+      "result": "PASS",
+      "date": "2026-07-03",
+      "approver": "user",
+      "checks": ["spec-auditor C1-C6 PASS", "openspec validate PASS"],
+      "notes": "24 ACs all CONFIRMED, 7 BRs + 4 INTs defined in-spec, 15 edge cases. All 9 ASSUMED + 1 UNCLEAR resolved. No open tags."
+    },
+    "S3": {
+      "gate": "DESIGN REVIEW",
+      "result": "PASS",
+      "date": "2026-07-03",
+      "approver": "user",
+      "checks": [
+        "cross-artifact-audit: 0 CRITICAL, 24/24 ACs covered",
+        "openspec change validate PASS",
+        "design.md present with Sketch + Implementation Guide",
+        "tasks.md: 19 tasks / 7 groups / 2 checkpoints, every subtask has File + _Requirements",
+        "No openapi.yaml (CLI tool, ADR-009 documented)"
+      ],
+      "notes": "10 ADRs. fcntl.flock LOCK_EX|LOCK_NB (ADR-004), shared assert_no_secret (ADR-006), CrontabClient seam (ADR-008), binary resolution shutil.which->sys.argv[0] (ADR-002)."
+    },
+    "S4": {
+      "gate": "BUILD",
+      "result": "PASS",
+      "date": "2026-07-03",
+      "approver": "user",
+      "checks": [
+        "19/19 tasks [x]",
+        "openspec change validate PASS",
+        "ruff check src tests: 0 errors",
+        "ruff format --check: clean",
+        "pytest: 423 passed, 0 failed",
+        "coverage: 96.22% (floor >=80%)"
+      ],
+      "notes": "4 implementation decisions: StrEnum, X|None typing (ruff cosmetic, no semantic change). Branch feature/V2-002-cron-scheduler created."
+    },
+    "S5": {
+      "gate": "QA",
+      "result": "GO",
+      "date": "2026-07-03",
+      "approver": "qa",
+      "checks": [
+        "24/24 ACs independently verified (code review + test review)",
+        "QA re-verify pytest run: 429 passed, 0 failed, 96.47% (post bug-fix; +6 tests, +0.25 pp)",
+        "0 Critical/High bugs",
+        "3 Low bugs ALL RESOLVED: B-001 test renamed, B-002 _is_tty wired to NO_COLOR, B-003 _handle_broken_pipe() extracted with guards + 4 new tests",
+        "Security audit: 0 OWASP findings, RISK-001/002/003/004 all verified",
+        "Dependency audit: 0 HIGH/CRITICAL vulnerabilities",
+        "Ruff clean, README §Scheduling present",
+        "testcases.md generated (testcase_export=md)"
+      ],
+      "notes": "Re-verified 2026-07-03T18:00+07:00. B-002 fix: _is_tty now wired to os.environ['NO_COLOR']='1' before pipeline. B-003 fix: _handle_broken_pipe() helper with hasattr+UnsupportedOperation guards — cli.py:85-87 now covered. B-001 fix: test renamed to match ADR-007 intent. Smoke test limitation (real crontab subprocess) unchanged — S6 operator checklist item."
+    }
+  },
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "appended"
+  },
+  "last_updated": "2026-07-03T18:15+07:00",
+  "last_agent": "developer",
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-03",
+      "completed": "2026-07-03",
+      "artifacts_produced": ["proposal.md", "specs/scheduler-cli/spec.md (initial ADDED delta)", "_glossary.md", "_decisions.jsonl", "_handoff.md"],
+      "key_outcome": "23 ACs (13 CONFIRMED / 9 ASSUMED / 1 UNCLEAR), 7 BRs, 4 INTs, 15 edge cases, STRIDE risk flags; ADDED-only delta to scheduler-cli capability (OS cron primary, GitHub Actions optional, no daemon); openspec validate PASS"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-03",
+      "completed": "2026-07-03",
+      "artifacts_produced": ["specs/scheduler-cli/spec.md (full scenarios + BR/INT/Risk blocks)", "_handoff.md (S2->S3)", "_glossary.md", "_decisions.jsonl", "proposal.md (Structured Extract updated)"],
+      "key_outcome": "24 ACs all CONFIRMED (resolved 9 ASSUMED + 1 UNCLEAR; added AC-V2-002-024 for cron-PATH no-verify), 7 BRs + 4 INTs now defined in-spec (no dangling refs), Early Risk Flags block added; spec-auditor C1-C6 PASS, openspec validate PASS."
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-03",
+      "completed": "2026-07-03",
+      "artifacts_produced": ["design.md", "tasks.md", "_handoff.md (S3->S4)", "_glossary.md", "_decisions.jsonl", "memory/architect/v2-002-cron-scheduler.md"],
+      "key_outcome": "10 ADRs, 0 endpoints (CLI tool — no openapi.yaml per ADR-009), ~20 tasks in 7 groups (2 checkpoints), 24/24 ACs mapped to tasks. Resolved all 4 architect watch-items."
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "started": "2026-07-03",
+      "completed": "2026-07-03",
+      "artifacts_produced": [
+        "src/osspulse/lock.py",
+        "src/osspulse/schedule/ (errors.py, __init__.py, cron.py, secrets.py, workflow.py, crontab.py)",
+        "src/osspulse/cli.py (schedule command + run lock wiring)",
+        "tests/test_lock.py", "tests/test_schedule_cron.py", "tests/test_schedule_secrets.py",
+        "tests/test_schedule_workflow.py", "tests/test_schedule_crontab.py",
+        "tests/test_cli_schedule.py", "tests/test_cli_run_cronsafe.py",
+        "README.md (§Scheduling added)", "dev-test-report.md", "_handoff.md (S4->S5)", "_decisions.jsonl (IMPL-001..004)"
+      ],
+      "key_outcome": "coverage 96.22%, 19/19 tasks, 4 minor deviations (StrEnum, X|None, ruff style, CliRunner kwarg)"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "started": "2026-07-03",
+      "completed": "2026-07-03",
+      "artifacts_produced": ["qa-report.md", "qa/testcases.md", "_handoff.md (S5->S6)", "_decisions.jsonl (BUG-001..003 + S5-GO)", "memory/qa/v2-002-cron-scheduler.md"],
+      "key_outcome": "GO — 0 Critical/High bugs, 24/24 ACs verified, 96.47% coverage (+0.25 pp post-fix), 3 Low bugs ALL RESOLVED, security audit clean, dependency audit clean"
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "started": "2026-07-03",
+      "completed": "2026-07-03",
+      "artifacts_produced": [
+        "release.md",
+        "openspec archive — spec deltas (+6 requirements) merged into openspec/specs/scheduler-cli/spec.md",
+        "_state.json (S6 phase_history + deploy_status + null next_action)",
+        "_progress.md (S6 [x])"
+      ],
+      "key_outcome": "Change archived as 2026-07-03-v2-002-cron-scheduler. Living spec updated. release.md written with deploy checklist, operator smoke test items, and rollback playbook. deploy_status: dev=pending, master=pending."
+    }
+  ],
+  "active_concerns": [
+    "Smoke test gap: real crontab subprocess (--install/--uninstall) not verified in CI — operator must run manually before production (see release.md §S6 Operator Checklist)",
+    "Live pipe smoke test (osspulse run | head -1) for BrokenPipeError still requires real subprocess — operator must run manually before production (see release.md §S6 Operator Checklist)"
+  ],
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null,
+    "note": "Change archived. Review release.md then deploy. Update deploy_status entries out-of-band: node .kiro/tools/state-set.mjs --change v2-002-cron-scheduler --set deploy_status.<env>=pass"
+  }
+}

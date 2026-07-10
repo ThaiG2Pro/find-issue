@@ -90,6 +90,8 @@ def test_happy_path_llm_one_combined_call(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = [
         [item_a],  # REPO_A
         [item_b],  # REPO_B
@@ -127,6 +129,7 @@ def test_happy_path_mark_seen_called_per_repo(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = [[item_a], [item_b]]
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -156,6 +159,7 @@ def test_invalid_repo_error_skipped_others_succeed(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = [
         InvalidRepoError("not found"),
         [item_b],
@@ -183,6 +187,7 @@ def test_network_error_skipped(tmp_path):
     cfg = _config(repos=[REPO_A], tmp_path=tmp_path)
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = NetworkError("timeout")
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -203,6 +208,7 @@ def test_generic_collector_error_skipped(tmp_path):
     cfg = _config(repos=[REPO_A], tmp_path=tmp_path)
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = CollectorError("unknown")
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -220,6 +226,7 @@ def test_auth_error_is_fatal(tmp_path):
     cfg = _config(repos=[REPO_A, REPO_B], tmp_path=tmp_path)
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = AuthError("401")
 
     with (
@@ -240,6 +247,7 @@ def test_rate_limit_terminal_delivers_partial(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = [
         [item_a],  # REPO_A succeeds
         RateLimitError("quota gone"),  # REPO_B hits rate limit
@@ -271,6 +279,7 @@ def test_all_repos_fail_delivers_no_new_items(tmp_path):
     cfg = _config(repos=[REPO_A, REPO_B], tmp_path=tmp_path)
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = [
         InvalidRepoError("404"),
         NetworkError("timeout"),
@@ -308,6 +317,7 @@ def test_summarizer_returns_fewer_items(tmp_path):
     cfg = _config(llm_provider="openai", llm_api_key="sk-fake", tmp_path=tmp_path)
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [item1, item2]
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -339,6 +349,7 @@ def test_no_llm_path_summarizer_never_constructed(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [item]
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -379,6 +390,7 @@ def test_idempotent_rerun_same_digest(tmp_path):
     for _ in range(2):
         mock_collector = MagicMock()
         mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+        mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
         mock_collector.fetch_items.return_value = [item]
         mock_state = MagicMock()
         mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -402,6 +414,7 @@ def test_mark_seen_decoupled_from_summarize(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [item]
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -466,6 +479,7 @@ def test_no_secret_in_logs_stderr_or_digest(tmp_path, caplog, capsys):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     # Simulate an error that might embed secrets in its message
     mock_collector.fetch_items.side_effect = NetworkError("connection refused")
     mock_state = MagicMock()
@@ -550,6 +564,7 @@ def test_exactly_one_summarize_one_render_one_deliver(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.side_effect = [[item], []]
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # V1 default: nothing previously seen
@@ -586,6 +601,7 @@ def test_delta_first_run_all_new_all_recorded(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = items
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # empty state — nothing seen yet
@@ -614,6 +630,7 @@ def test_delta_mixed_new_and_seen_snapshot_before_mark_seen(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [item_seen, item_new]
     mock_state = MagicMock()
 
@@ -646,6 +663,7 @@ def test_delta_empty_after_filter_delivers_no_new_items_doc(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [item]
     mock_state = MagicMock()
     mock_state.is_seen.return_value = True  # already seen on a previous run
@@ -680,6 +698,7 @@ def test_delta_mark_seen_count_invariant_both_modes(tmp_path):
         cfg = _config(delta_enabled=delta_enabled, tmp_path=tmp_path)
         mock_collector = MagicMock()
         mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+        mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
         mock_collector.fetch_items.return_value = [item_seen, item_new]
         mock_state = MagicMock()
 
@@ -718,6 +737,7 @@ def test_delta_disabled_byte_identical_to_v1(tmp_path):
         cfg = _config(delta_enabled=delta_enabled, tmp_path=tmp_path / str(delta_enabled))
         mock_collector = MagicMock()
         mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+        mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
         mock_collector.fetch_items.return_value = items
         mock_state = MagicMock()
         mock_state.is_seen.return_value = True  # all previously seen
@@ -747,6 +767,7 @@ def test_delta_state_error_propagates_not_swallowed(tmp_path):
     cfg = _config(delta_enabled=True, tmp_path=tmp_path)
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [_raw(idx=1)]
     mock_state = MagicMock()
     mock_state.is_seen.side_effect = StateError("state file is corrupt: bad json")
@@ -785,6 +806,7 @@ def test_delta_mark_seen_still_decoupled_from_summarize_failure(tmp_path):
 
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [item]
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False
@@ -850,6 +872,7 @@ def test_issues_and_releases_concatenated_before_delta(tmp_path):
     cfg = _config(repos=[REPO_A], tmp_path=tmp_path)
     mock_collector = MagicMock()
     mock_collector.fetch_releases.return_value = []  # releases: empty default (v2-003)
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty default (v2-006)
     mock_collector.fetch_items.return_value = [issue1, issue2]
     mock_collector.fetch_releases.return_value = [rel1]
     mock_state = MagicMock()
@@ -890,6 +913,7 @@ def test_release_delta_suppressed_on_rerun_renderer_group_unchanged(tmp_path):
     mock_collector = MagicMock()
     mock_collector.fetch_items.return_value = []
     mock_collector.fetch_releases.return_value = [rel]
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty (v2-006)
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False  # nothing seen yet
     mock_delivery = MagicMock()
@@ -910,6 +934,7 @@ def test_release_delta_suppressed_on_rerun_renderer_group_unchanged(tmp_path):
     mock_collector2 = MagicMock()
     mock_collector2.fetch_items.return_value = []
     mock_collector2.fetch_releases.return_value = [rel]
+    mock_collector2.fetch_discussions.return_value = []  # discussions: empty (v2-006)
     mock_state2 = MagicMock()
     mock_state2.is_seen.return_value = True  # seen on previous run
     mock_delivery2 = MagicMock()
@@ -949,6 +974,7 @@ def test_release_fetch_failure_issues_survive_other_repos_unaffected(tmp_path):
         CollectorError("releases API glitch"),  # repo-a: recoverable failure
         [rel_b],  # repo-b: success
     ]
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty (v2-006)
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False
     mock_delivery = MagicMock()
@@ -984,6 +1010,7 @@ def test_release_auth_error_not_swallowed_by_inner_guard(tmp_path):
     mock_collector = MagicMock()
     mock_collector.fetch_items.return_value = [issue_a]
     mock_collector.fetch_releases.side_effect = AuthError("401 — token revoked")
+    mock_collector.fetch_discussions.return_value = []  # discussions: empty (v2-006)
     mock_state = MagicMock()
     mock_state.is_seen.return_value = False
 
@@ -993,3 +1020,213 @@ def test_release_auth_error_not_swallowed_by_inner_guard(tmp_path):
     ):
         with pytest.raises(AuthError):
             run_pipeline(cfg)
+
+
+# ---------------------------------------------------------------------------
+# V2-006 Discussions — pipeline integration tests (AC-V2-006-019..022)
+# ---------------------------------------------------------------------------
+
+
+def _raw_discussion(repo: str = "org/repo-a", *, number: int = 1) -> RawItem:
+    """A minimal discussion RawItem for pipeline tests."""
+    return RawItem(
+        repo=repo,
+        item_type="discussion",
+        item_id=str(number),
+        title=f"Discussion {number}",
+        body=f"Discussion body {number}",
+        url=f"https://github.com/{repo}/discussions/{number}",
+        created_at="2026-07-01T10:00:00Z",
+    )
+
+
+def test_issues_releases_discussions_concatenated_before_delta(tmp_path):
+    """A repo returning 2 issues + 1 release + 3 discussions yields 6 RawItems
+    (2 issue, 1 release, 3 discussion) concatenated into one list before the delta
+    partition step (AC-V2-006-019)."""
+    issue1 = _raw("org/repo-a", idx=1)
+    issue2 = _raw("org/repo-a", idx=2)
+    rel1 = _raw_release("org/repo-a", tag="v1.0.0")
+    disc1 = _raw_discussion("org/repo-a", number=1)
+    disc2 = _raw_discussion("org/repo-a", number=2)
+    disc3 = _raw_discussion("org/repo-a", number=3)
+
+    cfg = _config(repos=[REPO_A], tmp_path=tmp_path)
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = [issue1, issue2]
+    mock_collector.fetch_releases.return_value = [rel1]
+    mock_collector.fetch_discussions.return_value = [disc1, disc2, disc3]
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+    mock_delivery = MagicMock()
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery),
+    ):
+        run_pipeline(cfg)
+
+    # mark_seen must be called with the FULL 6-item concatenated list (AC-V2-006-019, R1)
+    mock_state.mark_seen.assert_called_once()
+    seen_items = mock_state.mark_seen.call_args[0][0]
+    assert len(seen_items) == 6
+    item_types = [i.item_type for i in seen_items]
+    assert item_types.count("issue") == 2
+    assert item_types.count("release") == 1
+    assert item_types.count("discussion") == 3
+
+    # All items appear in the delivered digest
+    delivered = mock_delivery.deliver.call_args[0][0]
+    assert issue1.title in delivered
+    assert issue2.title in delivered
+    assert rel1.title in delivered
+    assert disc1.title in delivered
+    assert disc2.title in delivered
+    assert disc3.title in delivered
+
+
+def test_discussion_delta_suppressed_on_rerun_renderer_group_unchanged(tmp_path):
+    """Discussion rendered and recorded on run 1 is suppressed on run 2 with
+    delta_enabled=true. Renders under the existing ### Discussion (N) group —
+    no renderer change required (AC-V2-006-020, AC-V2-006-021)."""
+    disc = _raw_discussion("org/repo-a", number=42)
+
+    cfg = _config(repos=[REPO_A], delta_enabled=True, tmp_path=tmp_path)
+
+    # --- Run 1: discussion is new → should appear in digest ---
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = []
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.return_value = [disc]
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False  # nothing seen yet
+    mock_delivery = MagicMock()
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery),
+    ):
+        run_pipeline(cfg)
+
+    digest_run1 = mock_delivery.deliver.call_args[0][0]
+    assert disc.title in digest_run1, "Discussion should appear in first-run digest"
+    # Discussion recorded under the "discussion" identity (AC-V2-006-020)
+    mock_state.mark_seen.assert_called_once_with([disc])
+    # Renderer already emits Discussion group — no renderer change
+    assert "Discussion" in digest_run1
+
+    # --- Run 2: discussion seen → should be suppressed ---
+    mock_collector2 = MagicMock()
+    mock_collector2.fetch_items.return_value = []
+    mock_collector2.fetch_releases.return_value = []
+    mock_collector2.fetch_discussions.return_value = [disc]
+    mock_state2 = MagicMock()
+    mock_state2.is_seen.return_value = True  # seen on previous run
+    mock_delivery2 = MagicMock()
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector2),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state2),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery2),
+    ):
+        run_pipeline(cfg)
+
+    digest_run2 = mock_delivery2.deliver.call_args[0][0]
+    assert disc.title not in digest_run2, "Seen discussion must be suppressed on rerun"
+    # Even when suppressed from rendering, still recorded (BR-V2-001-002)
+    mock_state2.mark_seen.assert_called_once_with([disc])
+
+
+def test_discussion_fetch_failure_issues_releases_survive(tmp_path):
+    """A recoverable CollectorError from fetch_discussions:
+    - repo's issues and releases are still delivered (AC-V2-006-022)
+    - other repos are unaffected
+    - mark_seen called once per repo with len(issues)+len(releases)+len(discussions) items
+      (R1 count-invariant tripwire — AC-V2-006-019)
+    """
+    issue_a = _raw("org/repo-a", idx=1)
+    issue_b = _raw("org/repo-b", idx=2)
+    rel_a = _raw_release("org/repo-a", tag="v1.0.0")
+    disc_b = _raw_discussion("org/repo-b", number=5)
+
+    cfg = _config(repos=[REPO_A, REPO_B], tmp_path=tmp_path)
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.side_effect = [[issue_a], [issue_b]]
+    mock_collector.fetch_releases.side_effect = [[rel_a], []]
+    mock_collector.fetch_discussions.side_effect = [
+        CollectorError("discussions API glitch"),  # repo-a: recoverable failure
+        [disc_b],  # repo-b: success
+    ]
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+    mock_delivery = MagicMock()
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery),
+    ):
+        run_pipeline(cfg)  # must NOT raise — exit 0 (AC-V2-006-022)
+
+    delivered = mock_delivery.deliver.call_args[0][0]
+    # repo-a: issues + release survived despite discussion failure
+    assert issue_a.title in delivered
+    assert rel_a.title in delivered
+    # repo-b: issue + discussion both present
+    assert issue_b.title in delivered
+    assert disc_b.title in delivered
+
+    # R1 count-invariant: mark_seen called once per repo with correct item counts
+    assert mock_state.mark_seen.call_count == 2
+    # repo-a: issues + releases (discussions failed → [])
+    mock_state.mark_seen.assert_any_call([issue_a, rel_a])
+    # repo-b: issues + discussions (releases=[])
+    mock_state.mark_seen.assert_any_call([issue_b, disc_b])
+
+
+def test_discussion_auth_error_not_swallowed_by_inner_guard(tmp_path):
+    """AuthError from fetch_discussions is NOT caught by the inner guard — it
+    propagates as a fatal error (AC-V2-006-022, inner-guard fatal exclusion)."""
+    issue_a = _raw("org/repo-a", idx=1)
+
+    cfg = _config(repos=[REPO_A], tmp_path=tmp_path)
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = [issue_a]
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.side_effect = AuthError("401 — token revoked")
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+    ):
+        with pytest.raises(AuthError):
+            run_pipeline(cfg)
+
+
+def test_discussion_rate_limit_error_not_swallowed_by_inner_guard(tmp_path):
+    """Terminal RateLimitError from fetch_discussions is NOT swallowed — it breaks
+    out of the loop and delivers partial results (AC-V2-006-022, AC-7-017)."""
+    issue_a = _raw("org/repo-a", idx=1)
+
+    cfg = _config(repos=[REPO_A], tmp_path=tmp_path)
+    mock_collector = MagicMock()
+    mock_collector.fetch_items.return_value = [issue_a]
+    mock_collector.fetch_releases.return_value = []
+    mock_collector.fetch_discussions.side_effect = RateLimitError("rate limit")
+    mock_state = MagicMock()
+    mock_state.is_seen.return_value = False
+    mock_delivery = MagicMock()
+
+    with (
+        patch("osspulse.pipeline.GitHubCollector", return_value=mock_collector),
+        patch("osspulse.pipeline.JsonFileStateStore", return_value=mock_state),
+        patch("osspulse.pipeline.StdoutDelivery", return_value=mock_delivery),
+    ):
+        run_pipeline(cfg)  # RateLimitError → break + partial deliver, NOT raise
+
+    # Partial deliver called (issues already collected before RateLimitError)
+    mock_delivery.deliver.assert_called_once()

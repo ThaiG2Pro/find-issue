@@ -1,0 +1,115 @@
+{
+  "ticket_id": "V2-006",
+  "feature_slug": "discussions",
+  "change_name": "v2-006-discussions",
+  "type": "feature",
+  "rigor": "lite",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "phases": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "current_phase": "S6",
+  "last_updated": "2026-07-09T17:42:42+07:00",
+  "last_agent": "developer",
+  "deploy_status": {
+    "dev": "pending",
+    "master": "pending"
+  },
+  "gates": {
+    "S2": "passed",
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  },
+  "convergence": {},
+  "memory_writeback": {
+    "analyst": "nothing-reusable",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "appended"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-09T14:03:00+07:00",
+      "completed": "2026-07-09T14:05:00+07:00",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/github-collector/spec.md",
+        "specs/scheduler-cli/spec.md",
+        "tasks.md",
+        "_glossary.md",
+        "_decisions.jsonl",
+        "_handoff.md"
+      ],
+      "key_outcome": "22 ACs (20 CONFIRMED, 2 ASSUMED), 10 BRs, 5 INTs, 17 edge cases; collector-only GraphQL Discussions feature; openspec validate PASS"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-09T16:04:00+07:00",
+      "completed": "2026-07-09T16:04:30+07:00",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/github-collector/spec.md",
+        "specs/scheduler-cli/spec.md"
+      ],
+      "key_outcome": "SPEC-LOCK confirmations: AC-V2-006-005 + AC-V2-006-012 flipped ASSUMED→CONFIRMED; 22/22 ACs CONFIRMED, 0 ASSUMED; spec-auditor PASS, openspec validate PASS"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-09T16:10:00+07:00",
+      "completed": "2026-07-09T16:16:00+07:00",
+      "artifacts_produced": [
+        "design.md",
+        "tasks.md",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "5 ADRs, 0 endpoints (CLI — no openapi.yaml), 18 subtasks / 2 checkpoints; openspec validate PASS; cross-artifact-audit 22/22 ACs covered, 0 CRITICAL"
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-07-09",
+      "note": "18/18 tasks done; 550 tests green; coverage 96%; client.py 99%, pipeline.py 93%; 2 minor deviations (connection dict return type; extended log format); all security invariants verified"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-07-09",
+      "note": "GO — 0 bugs, 22/22 ACs verified, 550 tests pass, coverage 96.25%; all ADR-003/ADR-002/token/inner-guard/R1 tripwires pass"
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-07-09",
+      "note": "Release artifacts created; CHANGELOG v0.9.0 prepended; README updated with Discussions+GraphQL note; pyproject.toml bumped 0.8.0→0.9.0; branch feature/V2-006-discussions pushed; openspec archived as 2026-07-09-v2-006-discussions"
+    }
+  ],
+  "active_concerns": [],
+  "terminology": {
+    "Discussion": "GitHub Discussions thread collected as RawItem item_type=discussion",
+    "Approach A": "inclusion by createdAt within lookback_days, same as issues; not hotness-based",
+    "200-with-errors model": "GraphQL 200 can carry errors array; null discussions+errors=disabled/not-found=skip repo; other errors=raise",
+    "Discussion identity": "repo + discussion + number (stringified)",
+    "json_body switch": "_request_with_retry(*, json_body=None)→GET (REST unchanged), dict→POST (GraphQL only); one shared retry/classify path (ADR-002)",
+    "Shape-first classification": "detect disabled Discussions by null connection shape (not errors[].type string); null-check precedes errors-raise (ADR-003)"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  }
+}

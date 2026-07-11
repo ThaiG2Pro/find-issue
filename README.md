@@ -124,6 +124,8 @@ enabled = true
 | `STATE_PATH` | No | Override the state file path from `config.toml`. |
 | `DISCORD_WEBHOOK_URL` | When `destination = "discord"` | Discord webhook URL. Create at: channel ⚙️ → Integrations → Webhooks → Copy URL. |
 | `REDIS_URL` | No | Redis connection URL for LLM summary caching (e.g. `redis://localhost:6379/0`). If absent, caching is disabled and the LLM is called on every run for new items. |
+| `UPSTASH_REDIS_REST_URL` | No (CI recommended) | Upstash Redis REST endpoint for the **state backend** (not the summary cache). When both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are set, seen-state is persisted in Upstash — required for idempotency on stateless runners (e.g. GitHub Actions). Absent → local `state.json` is used (default). |
+| `UPSTASH_REDIS_REST_TOKEN` | No (CI recommended) | Bearer token for the Upstash REST API. Must be set together with `UPSTASH_REDIS_REST_URL`. Never commit — supply via `${{ secrets.* }}` on CI. |
 
 See `.env.example` for a full annotated template.
 

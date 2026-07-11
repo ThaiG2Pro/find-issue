@@ -16,6 +16,26 @@ class StateStore(Protocol):
     def save(self, state: dict) -> None: ...
 
 
+class SeenTracker(Protocol):
+    """Port for the is_seen/mark_seen helpers the pipeline actually calls (ADR-003, AC-V3-003-008).
+
+    This is the REAL contract the pipeline depends on — wider than ``StateStore`` (load/save),
+    which the pipeline never calls directly.  Both ``JsonFileStateStore`` and
+    ``UpstashStateStore`` satisfy this Protocol structurally (no subclassing required).
+
+    ``StateStore`` is NOT changed (scope constraint 5 / AC-V3-003-008).  This Protocol is
+    ADDED alongside it to let ``_partition_new``/``_collect_all`` accept either backend.
+    """
+
+    def is_seen(self, repo: str, item_type: str, item_id: str) -> bool:
+        """Return True if the item is already recorded in the state store."""
+        ...
+
+    def mark_seen(self, items: list[RawItem]) -> None:
+        """Record *items* as seen; empty list is a safe no-op."""
+        ...
+
+
 class SummaryCache(Protocol):
     def get(self, key: str) -> str | None: ...
     def set(self, key: str, value: str) -> None: ...

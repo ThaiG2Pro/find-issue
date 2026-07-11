@@ -33,7 +33,7 @@ from osspulse.summarizer.client import LiteLLMSummarizer
 from osspulse.summarizer.config import SummarizerConfig
 
 if TYPE_CHECKING:
-    from osspulse.ports import ConditionalCache, SummaryCache
+    from osspulse.ports import ConditionalCache, SeenTracker, SummaryCache
 
 # ---------------------------------------------------------------------------
 # Suppress LiteLLM's verbose stderr banners (Give Feedback URL, LiteLLM.Info
@@ -136,14 +136,41 @@ def _build_etag_cache(config: Config) -> ConditionalCache:
         return _NullConditionalCache()
 
 
+def _build_store(config: Config) -> SeenTracker:
+    """Construct the state backend based on env-var presence (ADR-001, AC-V3-003-004/005).
+
+    Selection rule:
+    - Both ``UPSTASH_REDIS_REST_URL`` AND ``UPSTASH_REDIS_REST_TOKEN`` non-empty
+      → ``UpstashStateStore(url, token)`` (HTTP REST, fail-loud semantics).
+    - Either absent/empty → ``JsonFileStateStore(config.state_path)`` (unchanged behavior).
+
+    DELIBERATELY inverts ``_build_cache``/``_build_etag_cache``:
+    - Caches swallow errors → null-object (best-effort).
+    - State fails loud → ``StateError`` (idempotency source of truth, ADR-004).
+    No try/except here for runtime Upstash errors — they propagate out as ``StateError``.
+    Construction-time fallback (env-absent path) is the ONLY fallback (AC-V3-003-005).
+    """
+    url = os.environ.get("UPSTASH_REDIS_REST_URL", "")
+    token = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+    if url and token:
+        # Both env vars non-empty → use Upstash backend (AC-V3-003-004).
+        # Import here (lazy) so the package is only required when Upstash is configured.
+        from osspulse.state.upstash_store import UpstashStateStore  # noqa: PLC0415
+
+        logger.debug("state backend: Upstash Redis")
+        return UpstashStateStore(url=url, token=token)
+
+    # Either absent/empty → local JSON file (AC-V3-003-005).
+    logger.debug("state backend: JsonFileStateStore (%s)", config.state_path)
+    return JsonFileStateStore(config.state_path)
+
+
 # ---------------------------------------------------------------------------
 # Stage helpers
 # ---------------------------------------------------------------------------
 
 
-def _partition_new(
-    items: list[RawItem], state: JsonFileStateStore
-) -> tuple[list[RawItem], list[RawItem]]:
+def _partition_new(items: list[RawItem], state: SeenTracker) -> tuple[list[RawItem], list[RawItem]]:
     """Split *items* into (new, seen) using a pre-``mark_seen`` snapshot (ADR-001).
 
     Reads ``state.is_seen(repo, item_type, item_id)`` only — no writes. MUST be called
@@ -167,7 +194,7 @@ def _partition_new(
 def _collect_all(
     config: Config,
     collector: GitHubCollector,
-    state: JsonFileStateStore,
+    state: SeenTracker,
 ) -> tuple[list[RawItem], dict[str, int]]:
     """Collect issues across all watched repos with per-repo failure isolation (ADR-003).
 
@@ -335,7 +362,7 @@ def run_pipeline(config: Config) -> None:
     # --- Construct adapters (token/key to ctor only) ---
     conditional_cache = _build_etag_cache(config)  # AC-V2-007-019: best-effort, two-flag gate
     collector = GitHubCollector(config.github_token, conditional_cache=conditional_cache)
-    state = JsonFileStateStore(config.state_path)
+    state = _build_store(config)  # AC-V3-003-004/005: env-driven Upstash vs JSON file
 
     # --- Collect (per-repo isolation) ---
     all_items, stats = _collect_all(config, collector, state)

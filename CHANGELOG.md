@@ -4,7 +4,38 @@ All notable changes to OSS Pulse are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
 ---
+
+## [0.13.0] — 2026-07-11
+
+### Added (v3-upstash-state — V3-003)
+
+- **`UpstashStateStore`** (`src/osspulse/state/upstash_store.py`): new state backend
+  persisting seen-items in Upstash Redis over HTTP REST (`upstash-redis>=1.7,<2`).
+  Implements `is_seen` via `HGET`, `mark_seen` via `HSETNX` (write-once
+  `first_seen_at`, no read-modify-write race), plus `load`/`save` for
+  `StateStore` Protocol conformance (AC-V3-003-001, AC-V3-003-002, AC-V3-003-003).
+- **Env-driven backend selection** (`pipeline._build_store`): both
+  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` present (non-empty) →
+  `UpstashStateStore`; either absent/empty → `JsonFileStateStore` (unchanged
+  fallback). Selection happens at construction time only — no runtime switching
+  (AC-V3-003-004, AC-V3-003-005).
+- **Fail-loud `StateError`** on all Upstash runtime errors: any exception from the
+  `upstash-redis` client is caught, wrapped in `StateError`, and propagated to the
+  CLI (`exit 1`) — never swallowed, never falls back to local state mid-run, because
+  state is the idempotency source of truth (AC-V3-003-007).
+- **No secrets in error messages**: error text uses `type(exc).__name__` only; REST
+  URL and token are never interpolated into any log or exception message
+  (AC-V3-003-006).
+- **`SeenTracker` Protocol** added to `ports.py`: minimal interface (`is_seen`,
+  `mark_seen`) widening `_partition_new`/`_collect_all` type hints; `StateStore`
+  Protocol is **unchanged** — `load`/`save` only (AC-V3-003-008).
+- **`.env.example`** and **README §State backends**: operator documentation for
+  Upstash setup, env-var names, and the selection rule.
+- **39 new tests** (`tests/state/test_upstash_store.py`,
+  `tests/test_pipeline_upstash.py`) covering all 8 ACs; total suite: **658 tests**,
+  96% coverage.
 
 ## [0.12.0] — 2026-07-11
 

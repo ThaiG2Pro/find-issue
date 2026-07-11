@@ -13,5 +13,5 @@ api_key_env = "LLM_API_KEY"
 state_path = "./.osspulse/state.json"
 
 [output]
-#destination = "discord"
-destination = "stdout"
+destination = "discord"
+#destination = "stdout"

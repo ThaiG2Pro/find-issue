@@ -1,0 +1,109 @@
+{
+  "ticket_id": "V3-001",
+  "change_name": "v3-llm-throttle",
+  "type": "cr",
+  "current_phase": "S6",
+  "last_updated": "2026-07-11",
+  "last_agent": "developer",
+  "rigor": "lite",
+  "scope": "tiny",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "gates": {
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  },
+  "convergence": {},
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "nothing-reusable",
+    "qa": "appended"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "proposal.md",
+        "spec deltas (initial)"
+      ],
+      "key_outcome": "CR scoped to summarizer: per-minute token throttle + Vietnamese prompt + 429 retry-then-skip"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "specs/summarizer/spec.md (scenarios)",
+        "tasks.md"
+      ],
+      "key_outcome": "8 ACs (V3-001-001..008), 4 BRs, 1 MODIFIED requirement (AC-4-010 429 handling), spec-auditor PASS, openspec validate PASS"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "design.md",
+        "tasks.md (refined)",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "5 ADRs, 0 endpoints (CLI, no API), 8 tasks + 2 checkpoints; TokenWindow + sleep/clock injection + retry-then-skip"
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-07-11",
+      "note": "31 tests pass (21 existing + 10 new), 98.8% coverage, ruff clean, 0 deviations from design"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-07-11",
+      "note": "GO — 619 tests pass, 0 bugs, 98.8% coverage, all 10 ACs verified, dep audit clean"
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-07-11",
+      "note": "v0.11.0 released: CHANGELOG prepended, pyproject bumped 0.10.0→0.11.0, 619 tests (5 pre-existing cronsafe failures confirmed on baseline), ruff clean, committed 2d413ab, pushed to feature/V2-006-discussions, openspec archived as 2026-07-10-v3-llm-throttle, spec delta merged into openspec/specs/summarizer/spec.md"
+    }
+  ],
+  "active_concerns": [
+    "Throttle must not double-count cache hits / skipped items into the window (AC-V3-001-004)",
+    "response.usage may be None on some providers/mocks — treat as 0 tokens, never crash (AC-V3-001-003)",
+    "429 retry path MODIFIES AC-4-010: 429 retries before skipping; all other errors skip immediately",
+    "API key + prompt must never leak into throttle/retry log lines (AC-4-012)",
+    "Existing AC-4-010 test breaks without update (task 5.2) — now retries before skip"
+  ],
+  "terminology": {
+    "sliding window": "in-memory 60s record of per-call total_tokens used to decide when to sleep",
+    "tokens_per_minute": "configurable per-minute token budget (default 6000, Groq free tier)",
+    "retry-then-skip": "429 triggers exp-backoff retry (max 3, honoring Retry-After) before the existing skip-log-continue fallback"
+  },
+  "next_action": {
+    "agent": "sdlc",
+    "command": "approve s5",
+    "prerequisite": "dev-test-report.md created, coverage 98.8% >= 80%",
+    "blocker": "AWAITING GO/NO-GO GATE",
+    "routes_to": "developer /s6 V3-001 v3-llm-throttle (only after S5 gate PASSES)",
+    "priority_reading": [
+      "_handoff.md",
+      "qa-report.md"
+    ],
+    "watch_items": [
+      "summarize() call-order invariant (AC-V3-001-004)",
+      "Retry-After extraction chain — litellm upgrade risk"
+    ],
+    "key_outcome": "GO — 0 Critical/High, all 10 ACs verified, 619 tests pass"
+  }
+}

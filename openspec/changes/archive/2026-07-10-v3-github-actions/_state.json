@@ -1,0 +1,102 @@
+{
+  "ticket_id": "V3-002",
+  "change_name": "v3-github-actions",
+  "type": "cr",
+  "current_phase": "S6",
+  "last_updated": "2026-07-11",
+  "last_agent": "developer",
+  "rigor": "lite",
+  "scope": "tiny",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "gates": {
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  },
+  "convergence": {},
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "nothing-reusable",
+    "qa": "appended"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "proposal.md",
+        "spec deltas (initial)"
+      ],
+      "key_outcome": "CR scoped to CI infra: committed osspulse.yml GitHub Actions workflow (cron 1:00 UTC = 08:00 UTC+7) that runs osspulse run and persists .osspulse/state.json via git commit [skip ci]; no src/ changes"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "specs/ci-automation/spec.md (scenarios)",
+        "tasks.md",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "11 ACs (V3-002-001..011), 5 BRs, 3 INT, 3 ADDED requirements (new ci-automation capability); spec-auditor PASS, openspec validate PASS"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "design.md"
+      ],
+      "key_outcome": "1 ADR (git commit-back persistence w/ force-add + clean-tree guard + [skip ci] + concurrency), workflow skeleton, 0 endpoints, no openapi (no API); no src/ changes; openspec validate PASS"
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-07-11",
+      "note": "Pure infra CR: created .github/workflows/osspulse.yml (scheduled cron 0 1 * * *, state persistence via git add -f + [skip ci]), config.toml.ci.example, README section. 6/6 tasks done, 0 src/ changes, YAML valid, all 11 ACs covered."
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-07-11",
+      "note": "GO \u2014 11/11 ACs verified via YAML parse + static review. 1 Low bug BUG-1: spurious git push on clean tree (bash ||/&& left-assoc). No empty commit, no red job. YAML valid, 0 src/ changes, no raw secrets."
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-07-11",
+      "note": "Release v0.12.0: BUG-1 fixed (bash ||/&& precedence), CHANGELOG prepended, version bumped 0.11.0->0.12.0, YAML valid, committed+pushed on feature/V2-006-discussions, openspec archive completed (ci-automation spec created)."
+    }
+  ],
+  "active_concerns": [
+    "R-1: .osspulse/ AND config.toml both gitignored \u2014 must force-add state + commit a secret-free CI config, do NOT un-ignore",
+    "AC-004: unchanged state must no-op (no empty commit, no red job) \u2014 branch on git diff --quiet",
+    "AC-005: [skip ci] + GITHUB_TOKEN push prevents workflow loop; permissions contents:write only",
+    "install from source not pip install osspulse (not on PyPI)",
+    "persist only state.json; etags.json resets each CI run (accepted)"
+  ],
+  "terminology": {
+    "state persistence (git commit-back)": "committing .osspulse/state.json back after each CI run so the next stateless runner is delta-aware",
+    "[skip ci]": "commit-message marker + GITHUB_TOKEN push that stops the persistence commit re-triggering the workflow",
+    "force-add": "git add -f state.json to stage a gitignored file on CI",
+    "UTC cron": "Actions schedule.cron is UTC; 0 1 * * * = 08:00 UTC+7"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  },
+  "deploy_status": {
+    "feature": "done"
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "ticket_id": "V2-007",
+  "feature_slug": "v2-cache-etag",
+  "change_name": "v2-cache-etag",
+  "type": "cr",
+  "rigor": "lite",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "scope": "standard",
+  "phases": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "current_phase": "S6",
+  "last_updated": "2026-07-10T17:01:20+07:00",
+  "last_agent": "developer",
+  "gates": {
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  },
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "appended"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-10T15:00:00+07:00",
+      "completed": "2026-07-10T15:08:00+07:00",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/conditional-cache/spec.md",
+        "specs/github-collector/spec.md",
+        "specs/scheduler-cli/spec.md",
+        "tasks.md",
+        "_glossary.md",
+        "_decisions.jsonl",
+        "_handoff.md"
+      ],
+      "key_outcome": "28 ACs (all CONFIRMED), 12 BRs, 5 INTs, 17 edge cases; new conditional-cache capability (port+JSON adapter) injected into collector, best-effort corrupt-tolerant, first-page-only 304=empty-delta, crash-safe commit-after-mark_seen; STRIDE SKIPPED; openspec validate PASS"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-10T15:08:00+07:00",
+      "completed": "2026-07-10T15:10:00+07:00",
+      "artifacts_produced": [
+        "specs/conditional-cache/spec.md",
+        "specs/github-collector/spec.md",
+        "specs/scheduler-cli/spec.md"
+      ],
+      "key_outcome": "S2 scenarios written for all 28 ACs; openspec validate PASS; awaiting spec-auditor + SPEC LOCK"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-10T16:11:00+07:00",
+      "completed": "2026-07-10T16:11:32+07:00",
+      "artifacts_produced": [
+        "design.md",
+        "tasks.md",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "5 ADRs, 0 endpoints (CLI \u2014 no openapi.yaml), 15 tasks + 3 checkpoints; crash-safe commit-after-mark_seen (ADR-004), best-effort invert-corruption store (ADR-001), first-page-only 304=empty-delta (ADR-003); openspec validate PASS; cross-artifact-audit 0 CRITICAL"
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-07-10T16:21:01+07:00",
+      "artifacts": [
+        "etag_store.py",
+        "tests/cache/test_etag_store.py",
+        "tests/github/test_conditional_requests.py",
+        "dev-test-report.md",
+        "_handoff.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "coverage 97%, 609/609 tests, 1 deviation (NullConditionalCache to ports.py), 28/28 ACs covered"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-07-10T17:10:00+07:00",
+      "artifacts": [
+        "qa-report.md",
+        "qa/spec_tc_gap_report.md",
+        "_handoff.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "GO \u2014 0 bugs, 28/28 ACs verified, 609/609 tests, 97% coverage, RISK-001 tripwire pass, GraphQL untouched, best-effort semantics confirmed"
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-07-10T17:01:20+07:00",
+      "note": "Release artifacts ready. CHANGELOG.md v0.10.0 prepended, pyproject.toml bumped to 0.10.0, 609/609 tests green, ruff clean, openspec archived (specs: conditional-cache created, github-collector+scheduler-cli updated), commit f1a8163 pushed to feature/V2-006-discussions."
+    }
+  ],
+  "active_concerns": [
+    "RISK-001 (MEDIUM): commit() placement in run_pipeline \u2014 after _collect_all returns, unguarded; pipeline test asserts once-after-loop AND not-called-on-mid-loop-AuthError",
+    "etag_store.py must INVERT json_store.py: best-effort empty+WARN, never StateError-fatal",
+    "first-page-only 304=empty-delta depends on newest-first; do not send If-None-Match on pages 2..N",
+    "token discipline: etags.json = keys+validators only; conditional-path errors never str(exc); secret-scan in task 6.4"
+  ],
+  "terminology": {
+    "ETag / conditional request": "opaque HTTP validator echoed in If-None-Match; 304 Not Modified = unchanged and does NOT count against rate limit",
+    "Empty delta (304)": "first-page 304 \u2192 return [] for that endpoint, no further pages (sound because newest-first)",
+    "ConditionalCache port": "get(key)->str|None, set(key,validator) in-memory, commit() durable best-effort; key='{repo}:{endpoint}'",
+    "JsonFileETagStore": "adapter \u2192 separate etags.json, atomic temp+rename, best-effort corrupt-tolerant (opposite of state.json)",
+    "Commit ordering": "set() in-memory during fetch; pipeline commit() once after mark_seen \u2014 crash-safety against lost items",
+    "Two-flag gate": "conditional requests active only when etag_cache_enabled AND delta_enabled"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  },
+  "deploy_status": {
+    "feature": "pending"
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "ticket_id": "V4-002",
+  "change_name": "v4-digest-ux",
+  "type": "cr",
+  "current_phase": "S6",
+  "last_updated": "2026-07-13",
+  "last_agent": "developer",
+  "rigor": "lite",
+  "scope": "tiny",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "appended"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-13",
+      "completed": "2026-07-13",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/summarizer/spec.md (initial)",
+        "specs/scheduler-cli/spec.md (initial)",
+        "specs/digest-renderer/spec.md (initial)",
+        "specs/delivery/spec.md (initial)"
+      ],
+      "key_outcome": "4 bundled digest-UX tweaks (retry x7, top-N truncate, truncation alert, Option A per-item embeds); scope=tiny; 2 design-sensitive seam decisions flagged for architect"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-13",
+      "completed": "2026-07-13",
+      "artifacts_produced": [
+        "specs/*/spec.md (scenarios)",
+        "tasks.md"
+      ],
+      "key_outcome": "12 ACs (AC-V4-002-001..012 + 005b), 8 BRs, 1 INT across 4 capabilities; openspec validate PASS"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-13",
+      "completed": "2026-07-13",
+      "artifacts_produced": [
+        "design.md",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "4 ADRs (truncate step, renderer kw-param, in-adapter embed parse, retry default), 0 endpoints (CLI), 7 task groups + 2 checkpoints; openspec validate PASS"
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-07-13",
+      "note": "727 tests pass; coverage 90% on changed modules; _truncate_per_type added, renderer alert, Option-A per-item embeds, retry default 7; 5 deviations documented"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-07-13",
+      "note": "GO — 0 bugs, 15/15 ACs verified, 727 tests pass, 90% coverage; byte-identical no-op confirmed, T1 preserved, mark_seen idempotency structural"
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-07-13",
+      "note": "Release v0.15.0 — 727 tests, 0 lint errors, 4 lint fixes, openspec archived; 4 capabilities shipped (retry x7, top-N cap, truncation alert, per-item embeds)"
+    }
+  ],
+  "active_concerns": [
+    "Truncation MUST run BEFORE summarize in a dedicated _truncate_per_type step; mark_seen still records full set (idempotency)",
+    "Embed per-item data comes from in-adapter Markdown re-parse (ADR-003) — parser coupled to renderer _build_item_line format; zero-parsed-items => plain-text fallback",
+    "render() gains additive kw params (dropped_counts, max_items_per_type) with None defaults — no-op must be byte-identical; dropped_counts keys on item.raw.repo",
+    "Update always-fails-429 summarizer test 3->7 (retry default change)",
+    "T1: reshaped embed POST must keep _post_one_embed status/type-only error (URL never leaked); fixed color dict, no hash()"
+  ],
+  "terminology": {
+    "max_items_per_type": "[watchlist] positive-int cap (default 10) on items per (repo,item_type); truncates oldest, keeps newest by created_at desc, BEFORE summarize",
+    "truncation alert": "renderer line '⚠️ +{count} items not shown (limit: {N})' per repo when items were dropped",
+    "Option A embed": "one Discord embed per item (title/summary/type-color/footer) + one yellow header embed per repo; replaces v4-001 one-embed-per-repo",
+    "item-type color map": "issue=0xED4245, release=0x57F287, discussion=0x5865F2, header=0xFEE75C, + fallback"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  },
+  "gates": {
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  }
+}

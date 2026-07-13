@@ -5,7 +5,7 @@ repos = [
     "openmeterio/openmeter",
     "flexprice/flexprice",
 ]
-lookback_days = 1
+lookback_days = 7
 
 [llm]
 provider = "groq"
@@ -16,7 +16,7 @@ api_key_env = "LLM_API_KEY"
 state_path = "./.osspulse/state.json"
 
 [output]
-destination = "discord"
+destination = "stdout"
 
 [discord]
 use_embeds = true

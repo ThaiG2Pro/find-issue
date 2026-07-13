@@ -389,7 +389,11 @@ def run_pipeline(config: Config) -> None:
     if config.output_destination == "stdout":
         delivery = StdoutDelivery()
     elif config.output_destination == "discord":
-        delivery = DiscordDelivery(config.webhook_url, timeout=10.0)  # AC-V2-005-001
+        delivery = DiscordDelivery(  # AC-V2-005-001, AC-V4-001-005
+            config.webhook_url,
+            timeout=10.0,
+            use_embeds=config.discord_use_embeds,
+        )
     else:
         delivery = FileDelivery(config.output_path)
     delivery.deliver(digest)

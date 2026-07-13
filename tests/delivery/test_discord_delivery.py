@@ -1,12 +1,21 @@
 """Unit tests for DiscordDelivery adapter (AC-V2-005-001..003, 008..011)."""
 
+import hashlib as _hashlib
 import sys
 from unittest.mock import MagicMock
 
 import httpx
 import pytest
 
-from osspulse.delivery.discord_delivery import DiscordDelivery
+from osspulse.delivery.discord_delivery import (
+    _EMBED_PALETTE,
+    DiscordDelivery,
+    _batch_embeds,
+    _build_embeds,
+    _color_for_repo,
+    _parse_sections,
+    _split_description,
+)
 from osspulse.delivery.errors import DeliveryError
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/123/secret_token"
@@ -273,3 +282,196 @@ def test_no_upstream_imports(AC="AC-V2-005-003"):
                 assert "discord_delivery" not in source, (
                     f"discord_delivery imported forbidden module {mod_name}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# V4-001 Discord Embed tests
+# ---------------------------------------------------------------------------
+
+_SAMPLE_CONTENT = """\
+## vercel/next.js — 1 ngày qua
+Some issue text here.
+Another line.
+
+## getlago/lago — 1 ngày qua
+Release notes here.
+"""
+
+_NO_HEADER_CONTENT = "No new items in the last 1 days."
+
+
+class TestParseSections:
+    def test_splits_at_headers(self):
+        """_parse_sections splits at ## boundaries (AC-V4-001-001)."""
+        sections = _parse_sections(_SAMPLE_CONTENT)
+        assert len(sections) == 2
+        assert sections[0]["title"] == "vercel/next.js — 1 ngày qua"
+        assert sections[1]["title"] == "getlago/lago — 1 ngày qua"
+        assert "Some issue text" in sections[0]["body"]
+        assert "Release notes" in sections[1]["body"]
+
+    def test_no_headers_returns_empty(self):
+        """_parse_sections returns [] when no ## headers present (AC-V4-001-002)."""
+        assert _parse_sections(_NO_HEADER_CONTENT) == []
+
+    def test_single_section(self):
+        """Single section with no trailing ## (AC-V4-001-001)."""
+        content = "## owner/repo — 1 ngày qua\nBody text."
+        sections = _parse_sections(content)
+        assert len(sections) == 1
+        assert sections[0]["title"] == "owner/repo — 1 ngày qua"
+
+    def test_empty_string_returns_empty(self):
+        """Empty content returns empty list (AC-V4-001-002)."""
+        assert _parse_sections("") == []
+
+
+class TestColorForRepo:
+    def test_deterministic_same_input(self):
+        """Same slug always yields same color (AC-V4-001-002)."""
+        c1 = _color_for_repo("vercel/next.js")
+        c2 = _color_for_repo("vercel/next.js")
+        assert c1 == c2
+
+    def test_result_in_palette(self):
+        """Color is always a member of the palette (AC-V4-001-002)."""
+        for slug in ["vercel/next.js", "getlago/lago", "owner/repo", "a/b"]:
+            assert _color_for_repo(slug) in _EMBED_PALETTE
+
+    def test_uses_hashlib_not_builtin(self):
+        """Color matches hashlib.md5 computation — not builtin hash() (AC-V4-001-002)."""
+        slug = "vercel/next.js"
+        expected_idx = _hashlib.md5(slug.encode(), usedforsecurity=False).digest()[0] % len(
+            _EMBED_PALETTE
+        )
+        assert _color_for_repo(slug) == _EMBED_PALETTE[expected_idx]
+
+    def test_different_slugs_can_differ(self):
+        """Different slugs are not all the same color (palette diversity check)."""
+        colors = {_color_for_repo(f"owner/repo{i}") for i in range(12)}
+        assert len(colors) > 1
+
+
+class TestSplitDescription:
+    def test_short_body_unchanged(self):
+        """Body ≤4096 chars returned as single chunk (AC-V4-001-003)."""
+        body = "x" * 100
+        assert _split_description(body) == [body]
+
+    def test_long_body_split(self):
+        """Body >4096 chars split into ≤4096-char chunks (AC-V4-001-003)."""
+        body = ("A" * 80 + "\n") * 60  # ~4860 chars
+        chunks = _split_description(body)
+        assert len(chunks) > 1
+        for chunk in chunks:
+            assert len(chunk) <= 4096
+
+    def test_uses_code_points_not_bytes(self):
+        """Measurement uses len() (code points), not byte length (AC-V4-001-003)."""
+        # Vietnamese character = 3 bytes but 1 code point
+        body = "à" * 4096
+        chunks = _split_description(body)
+        assert len(chunks) == 1  # exactly 4096 code points, fits
+
+
+class TestBuildEmbeds:
+    def test_one_embed_per_section(self):
+        """Each section produces at least one embed (AC-V4-001-001)."""
+        sections = _parse_sections(_SAMPLE_CONTENT)
+        embeds = _build_embeds(sections)
+        assert len(embeds) >= 2
+
+    def test_embed_has_required_keys(self):
+        """Each embed has title, description, color, footer (AC-V4-001-001)."""
+        sections = [{"title": "vercel/next.js — 1 ngày qua", "body": "Some text."}]
+        embed = _build_embeds(sections)[0]
+        assert "title" in embed
+        assert "description" in embed
+        assert "color" in embed
+        assert "footer" in embed
+        assert "text" in embed["footer"]
+
+    def test_footer_contains_oss_pulse(self):
+        """Footer text contains 'OSS Pulse' (AC-V4-001-001)."""
+        sections = [{"title": "owner/repo — 1 ngày qua", "body": "Body."}]
+        embed = _build_embeds(sections)[0]
+        assert "OSS Pulse" in embed["footer"]["text"]
+
+    def test_description_truncated_at_4096(self):
+        """Long body is split; each embed description ≤4096 code points (AC-V4-001-003)."""
+        long_body = ("word " * 1000).strip()  # ~5000 chars
+        sections = [{"title": "owner/repo — 1 ngày qua", "body": long_body}]
+        embeds = _build_embeds(sections)
+        for embed in embeds:
+            assert len(embed["description"]) <= 4096
+
+
+class TestBatchEmbeds:
+    def test_batches_of_10(self):
+        """11 embeds → 2 batches, first ≤10 (AC-V4-001-004)."""
+        embeds = [{"title": str(i)} for i in range(11)]
+        batches = _batch_embeds(embeds)
+        assert len(batches) == 2
+        assert len(batches[0]) == 10
+        assert len(batches[1]) == 1
+
+    def test_exactly_10_is_one_batch(self):
+        """Exactly 10 embeds → 1 batch (AC-V4-001-004)."""
+        embeds = [{"title": str(i)} for i in range(10)]
+        assert len(_batch_embeds(embeds)) == 1
+
+    def test_empty_returns_empty(self):
+        assert _batch_embeds([]) == []
+
+
+class TestDiscordDeliveryEmbedMode:
+    def test_embed_mode_posts_embeds_json(self):
+        """use_embeds=True + ## sections → POST {embeds: [...]} (AC-V4-001-005)."""
+        client = _mock_client(204)
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
+        delivery.deliver(_SAMPLE_CONTENT)
+        call_kwargs = client.post.call_args
+        body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
+        assert "embeds" in body
+        assert isinstance(body["embeds"], list)
+        assert len(body["embeds"]) >= 1
+
+    def test_plain_fallback_no_sections(self):
+        """use_embeds=True but no ## headers → plain text {content:...} (AC-V4-001-006)."""
+        client = _mock_client(204)
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
+        delivery.deliver(_NO_HEADER_CONTENT)
+        body = client.post.call_args.kwargs.get("json") or client.post.call_args[1]["json"]
+        assert "content" in body
+        assert "embeds" not in body
+
+    def test_use_embeds_false_by_default(self):
+        """Default use_embeds=False → always plain text (AC-V4-001-008)."""
+        client = _mock_client(204)
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client)
+        delivery.deliver(_SAMPLE_CONTENT)
+        body = client.post.call_args.kwargs.get("json") or client.post.call_args[1]["json"]
+        assert "content" in body
+
+    def test_embed_post_non_2xx_raises_delivery_error(self):
+        """Non-2xx embed response → DeliveryError without URL (AC-V4-001-007)."""
+        client = _mock_client(400)
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
+        with pytest.raises(DeliveryError) as exc_info:
+            delivery.deliver(_SAMPLE_CONTENT)
+        assert "secret_token" not in str(exc_info.value)
+        assert "400" in str(exc_info.value)
+
+    def test_embed_batching_sends_multiple_requests(self):
+        """11 sections → 2 requests (≤10 embeds each) (AC-V4-001-004)."""
+        client = _mock_client(204)
+        content = "".join(f"## owner/repo{i} — 1 ngày qua\nBody {i}.\n" for i in range(11))
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
+        delivery.deliver(content)
+        assert client.post.call_count == 2
+        # First batch: 10 embeds, second batch: 1 embed
+        calls = client.post.call_args_list
+        first_body = calls[0].kwargs.get("json") or calls[0][1]["json"]
+        second_body = calls[1].kwargs.get("json") or calls[1][1]["json"]
+        assert len(first_body["embeds"]) == 10
+        assert len(second_body["embeds"]) == 1

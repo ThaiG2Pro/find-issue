@@ -27,6 +27,7 @@ class Config:
     webhook_env: str = "DISCORD_WEBHOOK_URL"  # AC-V2-005-012; name of the env var
     etag_cache_enabled: bool = True  # AC-V2-007-020; see [etag_cache] section in config.toml
     etag_cache_path: str = "./.osspulse/etags.json"  # AC-V2-007-020
+    discord_use_embeds: bool = False  # AC-V4-001-008a; opt-in embed mode for Discord delivery
 
 
 @dataclass(frozen=True)

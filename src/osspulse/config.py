@@ -60,6 +60,20 @@ def _validate_delta(data: dict) -> bool:
     return value
 
 
+def _validate_discord_use_embeds(data: dict) -> bool:
+    """Parse the optional ``[discord] use_embeds`` key, default ``False`` (AC-V4-001-008/008a).
+
+    Bool-trap guard mirrors ``_validate_delta``: ``type(value) is not bool`` rejects
+    non-bool values like ``"yes"`` or ``1`` fail-fast at load time (AC-V4-001-008).
+    Absent ``[discord]`` section or absent ``use_embeds`` key → ``False`` (AC-V4-001-008a).
+    """
+    discord_section = data.get("discord", {})
+    value = discord_section.get("use_embeds", False)
+    if type(value) is not bool:  # noqa: E721 — bool trap, see _validate_lookback
+        raise ConfigError("discord.use_embeds must be a boolean")
+    return value
+
+
 def _validate_etag_cache(data: dict) -> tuple[bool, str]:
     """Parse the optional ``[etag_cache]`` section (AC-V2-007-020/021).
 
@@ -194,6 +208,9 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
     # Step 11: optional [etag_cache] section — fail-fast bool-trap validation (AC-V2-007-020/021)
     etag_cache_enabled, etag_cache_path = _validate_etag_cache(data)
 
+    # Step 12: optional [discord] section — fail-fast bool-trap validation (AC-V4-001-008/008a)
+    discord_use_embeds = _validate_discord_use_embeds(data)
+
     return Config(
         watched_repos=watched_repos,
         lookback_days=lookback_days,
@@ -209,4 +226,5 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
         webhook_env=webhook_env,
         etag_cache_enabled=etag_cache_enabled,
         etag_cache_path=etag_cache_path,
+        discord_use_embeds=discord_use_embeds,
     )

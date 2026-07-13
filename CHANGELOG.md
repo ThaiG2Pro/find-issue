@@ -4,6 +4,19 @@ All notable changes to OSS Pulse are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] — 2026-07-13
+
+### Added (V4-001 Discord Rich Embeds)
+- `[discord] use_embeds = true` config opt-in — send digest as Discord Embed objects instead of plain text (AC-V4-001-008)
+- `_parse_sections`: split renderer Markdown at `## ` boundaries → per-repo embed sections (AC-V4-001-001)
+- `_color_for_repo`: deterministic per-repo sidebar colour via `hashlib.md5` % 6-colour palette — stable across runs (AC-V4-001-002)
+- `_build_embeds`: title, description (≤4096 code points), color, footer `OSS Pulse • {timestamp}` per section (AC-V4-001-001/003)
+- `_batch_embeds`: group embeds into requests of ≤10 (AC-V4-001-004)
+- Fallback to plain text when no `## ` sections found (e.g. "No new items") (AC-V4-001-006)
+- Fatal `DeliveryError` on embed POST failure — URL never leaked in message (AC-V4-001-007)
+- 23 new tests (681 total)
+
+
 
 ---
 

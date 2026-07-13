@@ -418,3 +418,38 @@ def test_etag_cache_config_error_before_pipeline(tmp_path):
     # Confirm exception is raised at load_config call, before any pipeline code runs
     with pytest.raises(ConfigError):
         load_config(p, ENV)
+
+
+# ---------------------------------------------------------------------------
+# Discord embed config — bool-trap (AC-V4-001-008, AC-V4-001-008a)
+# ---------------------------------------------------------------------------
+
+
+def test_discord_use_embeds_absent_defaults_false(tmp_path):
+    """Config.toml without [discord] section → discord_use_embeds defaults to False
+    (AC-V4-001-008a)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n')
+    cfg = load_config(p, ENV)
+    assert cfg.discord_use_embeds is False
+
+
+def test_discord_use_embeds_true(tmp_path):
+    """[discord] use_embeds = true → Config.discord_use_embeds is True (AC-V4-001-008)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[discord]\nuse_embeds = true\n')
+    cfg = load_config(p, ENV)
+    assert cfg.discord_use_embeds is True
+
+
+def test_discord_use_embeds_string_raises(tmp_path):
+    """[discord] use_embeds = "yes" → ConfigError — bool-trap guard (AC-V4-001-008)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[discord]\nuse_embeds = "yes"\n')
+    with pytest.raises(ConfigError, match="discord.use_embeds must be a boolean"):
+        load_config(p, ENV)
+
+
+def test_discord_use_embeds_int_raises(tmp_path):
+    """[discord] use_embeds = 1 (int, not bool) → ConfigError — isinstance(True, int) trap
+    (AC-V4-001-008)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n\n[discord]\nuse_embeds = 1\n')
+    with pytest.raises(ConfigError, match="discord.use_embeds must be a boolean"):
+        load_config(p, ENV)

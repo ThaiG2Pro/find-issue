@@ -1,6 +1,5 @@
-"""Unit tests for DiscordDelivery adapter (AC-V2-005-001..003, 008..011)."""
+"""Unit tests for DiscordDelivery adapter (AC-V2-005-001..003, 008..011, AC-V4-002-008..011)."""
 
-import hashlib as _hashlib
 import sys
 from unittest.mock import MagicMock
 
@@ -8,11 +7,12 @@ import httpx
 import pytest
 
 from osspulse.delivery.discord_delivery import (
-    _EMBED_PALETTE,
+    _ITEM_TYPE_COLOR_FALLBACK,
+    _ITEM_TYPE_COLORS,
+    _REPO_HEADER_COLOR,
     DiscordDelivery,
     _batch_embeds,
     _build_embeds,
-    _color_for_repo,
     _parse_sections,
     _split_description,
 )
@@ -285,8 +285,16 @@ def test_no_upstream_imports(AC="AC-V2-005-003"):
 
 
 # ---------------------------------------------------------------------------
-# V4-001 Discord Embed tests
+# V4-001 / V4-002 Discord Embed tests
 # ---------------------------------------------------------------------------
+
+# Sample content with parseable item lines (for Option-A embed tests)
+_SAMPLE_CONTENT_WITH_ITEMS = """\
+## vercel/next.js — 1 ngày qua
+### Issue mới (2)
+- #42 "Fix parser crash" \u2014 Parser crashes on empty input. [link](https://github.com/vercel/next.js/issues/42)
+- #43 "Memory leak" \u2014 Leak in renderer. [link](https://github.com/vercel/next.js/issues/43)
+"""
 
 _SAMPLE_CONTENT = """\
 ## vercel/next.js — 1 ngày qua
@@ -325,31 +333,67 @@ class TestParseSections:
         """Empty content returns empty list (AC-V4-001-002)."""
         assert _parse_sections("") == []
 
+    def test_parses_items_from_section(self):
+        """_parse_sections extracts per-item data (repo, item_type, title, summary) (ADR-003)."""
+        sections = _parse_sections(_SAMPLE_CONTENT_WITH_ITEMS)
+        assert len(sections) == 1
+        items = sections[0]["items"]
+        assert len(items) == 2
+        assert items[0]["repo"] == "vercel/next.js"
+        assert items[0]["item_type"] == "issue"
+        assert items[0]["title"] == "Fix parser crash"
+        assert "Parser crashes" in items[0]["summary"]
 
-class TestColorForRepo:
-    def test_deterministic_same_input(self):
-        """Same slug always yields same color (AC-V4-001-002)."""
-        c1 = _color_for_repo("vercel/next.js")
-        c2 = _color_for_repo("vercel/next.js")
-        assert c1 == c2
+    def test_section_without_item_lines_has_empty_items(self):
+        """Section body with no item lines yields empty items list (ADR-003 fallback)."""
+        sections = _parse_sections(_SAMPLE_CONTENT)
+        for s in sections:
+            assert s["items"] == []
 
-    def test_result_in_palette(self):
-        """Color is always a member of the palette (AC-V4-001-002)."""
-        for slug in ["vercel/next.js", "getlago/lago", "owner/repo", "a/b"]:
-            assert _color_for_repo(slug) in _EMBED_PALETTE
-
-    def test_uses_hashlib_not_builtin(self):
-        """Color matches hashlib.md5 computation — not builtin hash() (AC-V4-001-002)."""
-        slug = "vercel/next.js"
-        expected_idx = _hashlib.md5(slug.encode(), usedforsecurity=False).digest()[0] % len(
-            _EMBED_PALETTE
+    def test_label_to_type_mapping(self):
+        """Group label '### Release' maps to item_type='release' (ADR-003)."""
+        content = (
+            "## owner/repo — 7 ngày qua\n"
+            "### Release (1)\n"
+            '- #v1.0 "v1.0.0" \u2014 New release. [link](https://x)\n'
         )
-        assert _color_for_repo(slug) == _EMBED_PALETTE[expected_idx]
+        sections = _parse_sections(content)
+        assert sections[0]["items"][0]["item_type"] == "release"
 
-    def test_different_slugs_can_differ(self):
-        """Different slugs are not all the same color (palette diversity check)."""
-        colors = {_color_for_repo(f"owner/repo{i}") for i in range(12)}
-        assert len(colors) > 1
+    def test_kha_label_maps_to_other(self):
+        """Group label 'Khác' maps to item_type='other' (ADR-003)."""
+        content = (
+            "## owner/repo — 7 ngày qua\n"
+            "### Khác (1)\n"
+            '- #x "Something" \u2014 Summary. [link](https://x)\n'
+        )
+        sections = _parse_sections(content)
+        assert sections[0]["items"][0]["item_type"] == "other"
+
+
+class TestItemTypeColors:
+    """Tests for the fixed item-type color map (AC-V4-002-010)."""
+
+    def test_known_types_have_correct_colors(self):
+        """issue/release/discussion map to their specified hex colors (AC-V4-002-010)."""
+        assert _ITEM_TYPE_COLORS["issue"] == 0xED4245
+        assert _ITEM_TYPE_COLORS["release"] == 0x57F287
+        assert _ITEM_TYPE_COLORS["discussion"] == 0x5865F2
+
+    def test_header_color_is_yellow(self):
+        """Header embed uses 0xFEE75C (AC-V4-002-009)."""
+        assert _REPO_HEADER_COLOR == 0xFEE75C
+
+    def test_fallback_color_for_unknown_type(self):
+        """Unknown item_type uses the fallback color (AC-V4-002-010)."""
+        assert _ITEM_TYPE_COLOR_FALLBACK not in _ITEM_TYPE_COLORS.values()
+
+    def test_no_hash_function_used(self):
+        """Color map is a plain dict — no hashlib or builtin hash() (AC-V4-002-010)."""
+        import osspulse.delivery.discord_delivery as mod
+
+        # Confirm hashlib is not imported
+        assert "hashlib" not in dir(mod)
 
 
 class TestSplitDescription:
@@ -375,15 +419,65 @@ class TestSplitDescription:
 
 
 class TestBuildEmbeds:
-    def test_one_embed_per_section(self):
-        """Each section produces at least one embed (AC-V4-001-001)."""
+    """Tests for Option-A per-item embed builder (AC-V4-002-009..011)."""
+
+    def test_header_embed_per_section(self):
+        """Each section with items produces a header embed (AC-V4-002-009)."""
+        sections = _parse_sections(_SAMPLE_CONTENT_WITH_ITEMS)
+        embeds = _build_embeds(sections)
+        # First embed is the header
+        header = embeds[0]
+        assert header["color"] == _REPO_HEADER_COLOR
+        assert "vercel/next.js" in header["title"]
+        assert "2 items" in header["description"]
+
+    def test_per_item_embed_shape(self):
+        """Each item embed has correct title, description, color, footer (AC-V4-002-011)."""
+        sections = _parse_sections(_SAMPLE_CONTENT_WITH_ITEMS)
+        embeds = _build_embeds(sections)
+        # embeds[0] is header, embeds[1] and [2] are items
+        item_embed = embeds[1]
+        assert item_embed["title"] == "Fix parser crash"
+        assert "Parser crashes" in item_embed["description"]
+        assert item_embed["color"] == _ITEM_TYPE_COLORS["issue"]
+        assert "vercel/next.js" in item_embed["footer"]["text"]
+        assert "issue" in item_embed["footer"]["text"]
+        assert "OSS Pulse" in item_embed["footer"]["text"]
+
+    def test_item_title_truncated_to_256(self):
+        """Item embed title is truncated to 256 code points (AC-V4-002-011)."""
+        long_title = "A" * 300
+        content = (
+            "## owner/repo — 7 ngày qua\n"
+            "### Issue mới (1)\n"
+            f'- #1 "{long_title}" \u2014 Summary. [link](https://x)\n'
+        )
+        sections = _parse_sections(content)
+        embeds = _build_embeds(sections)
+        item_embed = embeds[1]  # [0] is header
+        assert len(item_embed["title"]) == 256
+
+    def test_fallback_color_for_other_type(self):
+        """'other' item_type uses fallback color (AC-V4-002-010)."""
+        content = (
+            "## owner/repo — 7 ngày qua\n"
+            "### Khác (1)\n"
+            '- #x "Something" \u2014 Khác summary. [link](https://x)\n'
+        )
+        sections = _parse_sections(content)
+        embeds = _build_embeds(sections)
+        item_embed = embeds[1]
+        assert item_embed["color"] == _ITEM_TYPE_COLOR_FALLBACK
+
+    def test_section_without_items_produces_embeds(self):
+        """Section without parseable items still produces an embed (legacy path) (AC-V4-001-006)."""
         sections = _parse_sections(_SAMPLE_CONTENT)
         embeds = _build_embeds(sections)
-        assert len(embeds) >= 2
+        assert len(embeds) >= 2  # at least one per section
 
     def test_embed_has_required_keys(self):
         """Each embed has title, description, color, footer (AC-V4-001-001)."""
-        sections = [{"title": "vercel/next.js — 1 ngày qua", "body": "Some text."}]
+        sections = [{"title": "vercel/next.js — 1 ngày qua", "body": "Some text.", "items": []}]
         embed = _build_embeds(sections)[0]
         assert "title" in embed
         assert "description" in embed
@@ -393,14 +487,14 @@ class TestBuildEmbeds:
 
     def test_footer_contains_oss_pulse(self):
         """Footer text contains 'OSS Pulse' (AC-V4-001-001)."""
-        sections = [{"title": "owner/repo — 1 ngày qua", "body": "Body."}]
+        sections = [{"title": "owner/repo — 1 ngày qua", "body": "Body.", "items": []}]
         embed = _build_embeds(sections)[0]
         assert "OSS Pulse" in embed["footer"]["text"]
 
     def test_description_truncated_at_4096(self):
         """Long body is split; each embed description ≤4096 code points (AC-V4-001-003)."""
         long_body = ("word " * 1000).strip()  # ~5000 chars
-        sections = [{"title": "owner/repo — 1 ngày qua", "body": long_body}]
+        sections = [{"title": "owner/repo — 1 ngày qua", "body": long_body, "items": []}]
         embeds = _build_embeds(sections)
         for embed in embeds:
             assert len(embed["description"]) <= 4096
@@ -426,10 +520,10 @@ class TestBatchEmbeds:
 
 class TestDiscordDeliveryEmbedMode:
     def test_embed_mode_posts_embeds_json(self):
-        """use_embeds=True + ## sections → POST {embeds: [...]} (AC-V4-001-005)."""
+        """use_embeds=True + ## sections with items → POST {embeds: [...]} (AC-V4-001-005)."""
         client = _mock_client(204)
         delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
-        delivery.deliver(_SAMPLE_CONTENT)
+        delivery.deliver(_SAMPLE_CONTENT_WITH_ITEMS)
         call_kwargs = client.post.call_args
         body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
         assert "embeds" in body
@@ -445,11 +539,20 @@ class TestDiscordDeliveryEmbedMode:
         assert "content" in body
         assert "embeds" not in body
 
+    def test_plain_fallback_zero_parsed_items(self):
+        """use_embeds=True + sections with zero parsed items → plain text fallback (ADR-003)."""
+        client = _mock_client(204)
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
+        # _SAMPLE_CONTENT has no "- #" item lines → zero parsed items → fallback
+        delivery.deliver(_SAMPLE_CONTENT)
+        body = client.post.call_args.kwargs.get("json") or client.post.call_args[1]["json"]
+        assert "content" in body
+
     def test_use_embeds_false_by_default(self):
         """Default use_embeds=False → always plain text (AC-V4-001-008)."""
         client = _mock_client(204)
         delivery = DiscordDelivery(WEBHOOK_URL, client=client)
-        delivery.deliver(_SAMPLE_CONTENT)
+        delivery.deliver(_SAMPLE_CONTENT_WITH_ITEMS)
         body = client.post.call_args.kwargs.get("json") or client.post.call_args[1]["json"]
         assert "content" in body
 
@@ -458,20 +561,34 @@ class TestDiscordDeliveryEmbedMode:
         client = _mock_client(400)
         delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
         with pytest.raises(DeliveryError) as exc_info:
-            delivery.deliver(_SAMPLE_CONTENT)
+            delivery.deliver(_SAMPLE_CONTENT_WITH_ITEMS)
         assert "secret_token" not in str(exc_info.value)
         assert "400" in str(exc_info.value)
 
-    def test_embed_batching_sends_multiple_requests(self):
-        """11 sections → 2 requests (≤10 embeds each) (AC-V4-001-004)."""
+    def test_embed_batching_10_items_plus_header(self):
+        """10 items + 1 header = 11 embeds → 2 requests (AC-V4-002-008)."""
         client = _mock_client(204)
-        content = "".join(f"## owner/repo{i} — 1 ngày qua\nBody {i}.\n" for i in range(11))
+        # Build content with 10 items in one repo section
+        item_lines = "".join(
+            f'- #{i} "Issue {i}" \u2014 Summary {i}. [link](https://x/{i})\n' for i in range(10)
+        )
+        content = f"## owner/repo — 7 ngày qua\n### Issue mới (10)\n{item_lines}"
         delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
         delivery.deliver(content)
+        # 1 header + 10 items = 11 → 2 batches (≤10 each)
         assert client.post.call_count == 2
-        # First batch: 10 embeds, second batch: 1 embed
         calls = client.post.call_args_list
         first_body = calls[0].kwargs.get("json") or calls[0][1]["json"]
         second_body = calls[1].kwargs.get("json") or calls[1][1]["json"]
         assert len(first_body["embeds"]) == 10
         assert len(second_body["embeds"]) == 1
+
+    def test_t1_url_never_in_embed_error(self):
+        """Reshaped embed POST error must not leak webhook URL (T1)."""
+        client = MagicMock(spec=httpx.Client)
+        client.post.side_effect = httpx.TimeoutException("timed out")
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
+        with pytest.raises(DeliveryError) as exc_info:
+            delivery.deliver(_SAMPLE_CONTENT_WITH_ITEMS)
+        assert WEBHOOK_URL not in str(exc_info.value)
+        assert "secret_token" not in str(exc_info.value)

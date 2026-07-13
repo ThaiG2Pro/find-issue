@@ -11,7 +11,6 @@ AC-V2-005-011). Error text is composed from HTTP status codes and exception
 
 from __future__ import annotations
 
-import hashlib
 from datetime import UTC, datetime
 
 import httpx
@@ -19,64 +18,109 @@ import httpx
 from osspulse.delivery.errors import DeliveryError
 
 # ---------------------------------------------------------------------------
-# Discord Embed helpers (AC-V4-001-001..008)
+# Discord Embed helpers (AC-V4-001-001..008, AC-V4-002-009..011)
 # ---------------------------------------------------------------------------
 
-# Fixed palette of 6 visually distinct Discord-safe colours (ADR-002).
-# Index derived via hashlib — never builtin hash() (PYTHONHASHSEED-salted).
-_EMBED_PALETTE: list[int] = [
-    0x5865F2,  # Discord blurple
-    0x57F287,  # green
-    0xFEE75C,  # yellow
-    0xED4245,  # red
-    0xEB459E,  # pink
-    0x1ABC9C,  # teal
-]
+# Fixed item-type color map (AC-V4-002-010, ADR-003). No hash(), no PYTHONHASHSEED risk.
+_ITEM_TYPE_COLORS: dict[str, int] = {
+    "issue": 0xED4245,  # red
+    "release": 0x57F287,  # green
+    "discussion": 0x5865F2,  # Discord blurple
+}
+_ITEM_TYPE_COLOR_FALLBACK: int = 0x1ABC9C  # teal — for "other"/unknown types
+_REPO_HEADER_COLOR: int = 0xFEE75C  # yellow — per-repo header embed (AC-V4-002-009)
 
 # Discord hard limits for embed mode.
 _EMBED_DESC_LIMIT = 4096  # code points per description (AC-V4-001-003)
 _EMBED_BATCH_SIZE = 10  # max embeds per request (AC-V4-001-004)
 
 
-def _color_for_repo(slug: str) -> int:
-    """Return a deterministic palette colour for *slug* (AC-V4-001-002, ADR-002).
+def _parse_sections(content: str) -> list[dict]:
+    """Split renderer output into per-repo sections with per-item data (AC-V4-001-001, ADR-003).
 
-    Uses hashlib.md5 — stable across Python versions and PYTHONHASHSEED values.
-    Never uses builtin hash() which is salted per-process.
+    Renderer emits:
+    - ``## repo/name — N ngày qua`` section headers
+    - ``### {label} (count)`` group headers within each section
+    - ``- #{id} "{title}" — {summary} [link]({url})`` item lines
+
+    Returns list of section dicts with keys:
+    - ``title``: the ``## `` header text (``repo — N ngày qua``)
+    - ``body``: raw body text (for legacy _build_embeds compatibility)
+    - ``items``: list of parsed item dicts (repo, item_type, title, summary)
+
+    Each item dict: ``{repo, item_type, title, summary}``.
+    Returns ``[]`` when no ``## `` header is found (triggers plain-text fallback).
     """
-    digest = hashlib.md5(slug.encode(), usedforsecurity=False).digest()
-    return _EMBED_PALETTE[digest[0] % len(_EMBED_PALETTE)]
-
-
-def _parse_sections(content: str) -> list[dict[str, str]]:
-    """Split renderer output into per-repo sections (AC-V4-001-001).
-
-    Renderer emits ``## repo/name — N ngày qua`` as section headers.
-    Returns list of ``{title, body}`` dicts.  Returns ``[]`` when no ``## ``
-    header is found (triggers plain-text fallback in deliver()).
-    """
-    sections: list[dict[str, str]] = []
+    sections: list[dict] = []
     lines = content.splitlines(keepends=True)
     current_title: str | None = None
     current_body_lines: list[str] = []
+    current_items: list[dict] = []
+    current_item_type: str = "other"
+
+    # Reverse map: renderer GROUP_LABELS -> item_type (ADR-003)
+    _LABEL_TO_TYPE: dict[str, str] = {
+        "Issue mới": "issue",
+        "Discussion": "discussion",
+        "Release": "release",
+        "Khác": "other",
+    }
+
+    import re as _re
+
+    # Tolerant item-line parser (ADR-003): - #{id} "{title}" — {summary} [link]({url})
+    # All segments after the leading "- #id" are optional.
+    _ITEM_RE = _re.compile(
+        r"^- #\S+\s*"  # - #id (mandatory)
+        r'(?:"(?P<title>[^"]*)")?\s*'  # optional "title"
+        r"(?:\u2014\s*(?P<summary>.*?))?"  # optional — summary (em-dash U+2014)
+        r"(?:\s*\[link\]\([^)]*\))?"  # optional [link](url)
+        r"\s*$"
+    )
+
+    def _flush():
+        if current_title is not None:
+            sections.append(
+                {
+                    "title": current_title,
+                    "body": "".join(current_body_lines).strip(),
+                    "items": list(current_items),
+                }
+            )
 
     for line in lines:
-        if line.startswith("## "):
-            if current_title is not None:
-                sections.append(
+        stripped = line.rstrip("\n")
+        if stripped.startswith("## "):
+            _flush()
+            current_title = stripped[3:]
+            current_body_lines = [line]
+            current_items = []
+            current_item_type = "other"
+        elif stripped.startswith("### "):
+            current_body_lines.append(line)
+            # Extract label between "### " and " (" to determine item_type
+            label_part = stripped[4:]
+            label = label_part.split(" (")[0].strip()
+            current_item_type = _LABEL_TO_TYPE.get(label, "other")
+        elif stripped.startswith("- #") and current_title is not None:
+            current_body_lines.append(line)
+            m = _ITEM_RE.match(stripped)
+            if m:
+                # Extract repo from current section title ("repo — N ngày qua")
+                repo = current_title.split(" \u2014 ")[0].split(" —")[0].strip()
+                current_items.append(
                     {
-                        "title": current_title,
-                        "body": "".join(current_body_lines).strip(),
+                        "repo": repo,
+                        "item_type": current_item_type,
+                        "title": (m.group("title") or "").strip(),
+                        "summary": (m.group("summary") or "").strip(),
                     }
                 )
-            current_title = line[3:].rstrip("\n")
-            current_body_lines = []
         else:
-            current_body_lines.append(line)
+            if current_title is not None:
+                current_body_lines.append(line)
 
-    if current_title is not None:
-        sections.append({"title": current_title, "body": "".join(current_body_lines).strip()})
-
+    _flush()
     return sections
 
 
@@ -103,24 +147,84 @@ def _split_description(body: str, limit: int = _EMBED_DESC_LIMIT) -> list[str]:
     return chunks
 
 
-def _build_embeds(sections: list[dict[str, str]]) -> list[dict]:
-    """Build Discord embed objects from parsed sections (AC-V4-001-001..004)."""
+def _build_embeds(sections: list[dict]) -> list[dict]:
+    """Build Option-A Discord embed objects: header + per-item embeds (AC-V4-002-009..011).
+
+    Per repo section:
+    1. One header embed (color=_REPO_HEADER_COLOR, title=repo,
+       description="{N} items — {lookback} ngày qua")
+    2. One embed per parsed item (title truncated ≤256 code points, description=summary,
+       color=_ITEM_TYPE_COLORS[item_type], footer="{repo} • {item_type} • OSS Pulse")
+
+    Falls back to a plain body embed (legacy shape) when a section has zero parsed items,
+    so the fallback path in deliver() can rely solely on total item count across sections.
+
+    Existing _split_description / _batch_embeds / _post_one_embed are reused unchanged
+    (AC-V4-001-003/004, T1).
+    """
     ts = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
     embeds: list[dict] = []
+
     for section in sections:
         title = section["title"]
-        body = section["body"]
-        repo_slug = title.split(" —")[0].strip() if " —" in title else title
-        color = _color_for_repo(repo_slug)
-        desc_chunks = _split_description(body)
-        for i, chunk in enumerate(desc_chunks):
-            embed: dict = {
-                "title": title if i == 0 else f"{title} (cont.)",
-                "description": chunk,
-                "color": color,
-                "footer": {"text": f"OSS Pulse \u2022 {ts}"},
-            }
-            embeds.append(embed)
+        items = section.get("items", [])
+
+        # Parse repo slug and lookback from "repo — N ngày qua"
+        if " \u2014 " in title:
+            repo_slug, rest = title.split(" \u2014 ", 1)
+        elif " —" in title:
+            repo_slug, rest = title.split(" —", 1)
+            rest = rest.strip()
+        else:
+            repo_slug = title
+            rest = ""
+
+        # Extract lookback number from "N ngày qua"
+        lookback_str = rest.strip()
+
+        if items:
+            # Header embed (AC-V4-002-009)
+            n_shown = len(items)
+            if lookback_str:
+                header_desc = f"{n_shown} items — {lookback_str}"
+            else:
+                header_desc = f"{n_shown} items"
+            embeds.append(
+                {
+                    "title": repo_slug,
+                    "description": header_desc,
+                    "color": _REPO_HEADER_COLOR,
+                    "footer": {"text": f"OSS Pulse \u2022 {ts}"},
+                }
+            )
+            # Per-item embeds (AC-V4-002-010/011)
+            for item in items:
+                item_type = item["item_type"]
+                color = _ITEM_TYPE_COLORS.get(item_type, _ITEM_TYPE_COLOR_FALLBACK)
+                item_title = item["title"][:256] if item["title"] else repo_slug
+                summary = item["summary"] or "(no summary)"
+                embeds.append(
+                    {
+                        "title": item_title,
+                        "description": summary,
+                        "color": color,
+                        "footer": {"text": f"{repo_slug} \u2022 {item_type} \u2022 OSS Pulse"},
+                    }
+                )
+        else:
+            # Zero items parsed — emit a plain body embed (legacy shape, used by fallback check)
+            body = section.get("body", "")
+            color = _REPO_HEADER_COLOR
+            desc_chunks = _split_description(body)
+            for i, chunk in enumerate(desc_chunks):
+                embed: dict = {
+                    "title": title if i == 0 else f"{title} (cont.)",
+                    "description": chunk,
+                    "color": color,
+                    "footer": {"text": f"OSS Pulse \u2022 {ts}"},
+                }
+                embeds.append(embed)
+
     return embeds
 
 
@@ -279,15 +383,20 @@ class DiscordDelivery:
         if self._use_embeds:
             sections = _parse_sections(content)
             if sections:
-                embeds = _build_embeds(sections)
-                batches = _batch_embeds(embeds)
-                if self._external_client is not None:
-                    self._post_embed_batches(self._external_client, batches)
-                else:
-                    with httpx.Client(timeout=self._timeout) as client:
-                        self._post_embed_batches(client, batches)
-                return
-            # No ## sections found — fall through to plain-text path (AC-V4-001-006)
+                # ADR-003 fallback: if ALL sections yielded zero parsed items,
+                # treat as format-drift and fall through to plain text (AC-V4-001-006)
+                total_items = sum(len(s.get("items", [])) for s in sections)
+                if total_items > 0:
+                    embeds = _build_embeds(sections)
+                    batches = _batch_embeds(embeds)
+                    if self._external_client is not None:
+                        self._post_embed_batches(self._external_client, batches)
+                    else:
+                        with httpx.Client(timeout=self._timeout) as client:
+                            self._post_embed_batches(client, batches)
+                    return
+                # zero items parsed — fall through to plain-text path
+            # No ## sections found or zero items parsed — fall through (AC-V4-001-006)
 
         messages = _split_for_discord(content)
         if self._external_client is not None:

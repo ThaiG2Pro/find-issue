@@ -316,6 +316,58 @@ def _collect_all(
     return all_items, stats
 
 
+def _truncate_per_type(
+    all_items: list[RawItem], cap: int
+) -> tuple[list[RawItem], dict[str, dict[str, int]]]:
+    """Cap each (repo, item_type) group to *cap* newest items by created_at desc.
+
+    Implements ADR-001, AC-V4-002-003/004.
+
+    Algorithm (ADR-001):
+    1. Per (repo, item_type), select the survivor set = the *cap* items with the greatest
+       created_at (ISO-8601 UTC strings sort lexicographically — correct for desc).
+    2. Rebuild kept_items by FILTERING the original all_items in input order so surviving
+       items retain their relative order (byte-identical no-op when no truncation occurs).
+    3. Compute dropped_counts[repo][item_type] = count_original - count_survivors for
+       any group where drops > 0.
+
+    Returns (kept_items, dropped_counts).
+    dropped_counts is empty when no items are dropped (cap ≥ group size for all groups).
+
+    MUST run AFTER _collect_all/mark_seen (full set already recorded) and
+    BEFORE _summarize (dropped items never reach the LLM — AC-V4-002-006).
+    """
+    # Phase 1: compute survivor ids per (repo, item_type)
+    # group: dict[(repo, item_type)] -> list[RawItem]
+    groups: dict[tuple[str, str], list[RawItem]] = {}
+    for item in all_items:
+        key = (item.repo, item.item_type)
+        groups.setdefault(key, []).append(item)
+
+    survivor_ids: set[tuple[str, str, str]] = set()  # (repo, item_type, item_id)
+    dropped_counts: dict[str, dict[str, int]] = {}
+
+    for (repo, item_type), group in groups.items():
+        if len(group) <= cap:
+            # No truncation — all survive
+            for item in group:
+                survivor_ids.add((item.repo, item.item_type, item.item_id))
+        else:
+            # Sort by created_at desc (ISO-8601 lexicographic) — newest first
+            survivors = sorted(group, key=lambda it: it.created_at, reverse=True)[:cap]
+            for item in survivors:
+                survivor_ids.add((item.repo, item.item_type, item.item_id))
+            dropped = len(group) - cap
+            dropped_counts.setdefault(repo, {})[item_type] = dropped
+
+    # Phase 2: filter original list in input order (preserves relative order)
+    kept_items = [
+        item for item in all_items if (item.repo, item.item_type, item.item_id) in survivor_ids
+    ]
+
+    return kept_items, dropped_counts
+
+
 def _summarize(config: Config, all_items: list[RawItem]) -> list[SummarizedItem]:
     """Summarize items — LLM or no-LLM path (ADR-006, AC-7-007/008/018/022).
 
@@ -378,12 +430,22 @@ def run_pipeline(config: Config) -> None:
     # DO NOT: wrap in try/except, move earlier, or call per-repo. (See design.md ADR-004.)
     conditional_cache.commit()  # once, unguarded, after the loop — CRASH-SAFETY-CRITICAL
 
+    # --- Truncate per (repo, item_type) BEFORE summarize (ADR-001, AC-V4-002-003/004/006) ---
+    # mark_seen already ran on the FULL all_items inside _collect_all; truncation here
+    # ensures only survivors reach the LLM (zero token cost for dropped items).
+    kept_items, dropped_counts = _truncate_per_type(all_items, config.max_items_per_type)
+
     # --- Summarize (LLM or no-LLM) ---
-    summarized = _summarize(config, all_items)
+    summarized = _summarize(config, kept_items)
     stats["summarized"] = len(summarized)
 
     # --- Render ONCE (empty list → valid no-new-items doc, AC-7-006) ---
-    digest = render(summarized, lookback_days=config.lookback_days)
+    digest = render(
+        summarized,
+        lookback_days=config.lookback_days,
+        dropped_counts=dropped_counts if dropped_counts else None,
+        max_items_per_type=config.max_items_per_type if dropped_counts else None,
+    )
 
     # --- Deliver ONCE (BR-7-007) ---
     if config.output_destination == "stdout":

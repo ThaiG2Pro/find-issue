@@ -200,6 +200,67 @@ def test_lookback_days_over_365_warns(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# max_items_per_type validation (AC-V4-002-005, AC-V4-002-005b)
+# ---------------------------------------------------------------------------
+
+
+def test_default_max_items_per_type(tmp_path, AC="AC-V4-002-005"):
+    """max_items_per_type defaults to 10 when not specified (AC-V4-002-005)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\n')
+    cfg = load_config(p, ENV)
+    assert cfg.max_items_per_type == 10
+
+
+def test_max_items_per_type_custom(tmp_path, AC="AC-V4-002-005"):
+    """max_items_per_type is read from [watchlist] section (AC-V4-002-005)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\nmax_items_per_type = 5\n')
+    cfg = load_config(p, ENV)
+    assert cfg.max_items_per_type == 5
+
+
+def test_max_items_per_type_one_is_valid(tmp_path, AC="AC-V4-002-005"):
+    """max_items_per_type = 1 is the minimum valid value (AC-V4-002-005)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\nmax_items_per_type = 1\n')
+    cfg = load_config(p, ENV)
+    assert cfg.max_items_per_type == 1
+
+
+def test_max_items_per_type_zero_rejected(tmp_path, AC="AC-V4-002-005b"):
+    """max_items_per_type = 0 raises ConfigError (AC-V4-002-005b)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\nmax_items_per_type = 0\n')
+    with pytest.raises(ConfigError, match="max_items_per_type"):
+        load_config(p, ENV)
+
+
+def test_max_items_per_type_negative_rejected(tmp_path, AC="AC-V4-002-005b"):
+    """max_items_per_type = -1 raises ConfigError (AC-V4-002-005b)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\nmax_items_per_type = -1\n')
+    with pytest.raises(ConfigError, match="max_items_per_type"):
+        load_config(p, ENV)
+
+
+def test_max_items_per_type_string_rejected(tmp_path, AC="AC-V4-002-005b"):
+    """max_items_per_type = '10' (string) raises ConfigError (AC-V4-002-005b)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\nmax_items_per_type = "10"\n')
+    with pytest.raises(ConfigError, match="max_items_per_type"):
+        load_config(p, ENV)
+
+
+def test_max_items_per_type_bool_rejected(tmp_path, AC="AC-V4-002-005b"):
+    """max_items_per_type = true (bool) raises ConfigError — bool trap (AC-V4-002-005b)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\nmax_items_per_type = true\n')
+    with pytest.raises(ConfigError, match="max_items_per_type"):
+        load_config(p, ENV)
+
+
+def test_max_items_per_type_float_rejected(tmp_path, AC="AC-V4-002-005b"):
+    """max_items_per_type = 2.5 (float) raises ConfigError (AC-V4-002-005b)."""
+    p = write_toml(tmp_path, '[watchlist]\nrepos = ["a/b"]\nmax_items_per_type = 2.5\n')
+    with pytest.raises(ConfigError, match="max_items_per_type"):
+        load_config(p, ENV)
+
+
+# ---------------------------------------------------------------------------
 # LLM key validation
 # ---------------------------------------------------------------------------
 

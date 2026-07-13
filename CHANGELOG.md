@@ -4,6 +4,31 @@ All notable changes to OSS Pulse are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] — 2026-07-13
+
+### Added (V4-002 Digest UX)
+- **Retry x7 backoff**: LiteLLM summarizer now retries up to 7 times (raised from 3) with
+  exponential backoff on transient LLM errors — fewer failed digests on flaky providers
+  (AC-V4-002-001, AC-V4-002-002)
+- **`max_items_per_type` cap** (default 10): a `_truncate_per_type` pipeline step runs
+  *before* summarize, keeping the newest N items per `(repo, item_type)` by `created_at`
+  desc and dropping the rest — prevents runaway LLM cost on prolific repos (AC-V4-002-003,
+  AC-V4-002-004, AC-V4-002-005, AC-V4-002-006)
+- **Truncation alert**: `render()` now emits `⚠️ +{count} items not shown (limit: {N})`
+  immediately after each repo header when items were dropped; the alert aggregates counts
+  across all item types for that repo (AC-V4-002-007, AC-V4-002-012)
+- **Option-A per-item Discord embeds**: Discord delivery now sends one embed per item
+  (title/summary/type-colour/footer) plus one yellow header embed per repo, replacing the
+  v4-001 one-embed-per-repo layout; colours: issue=`0xED4245`, release=`0x57F287`,
+  discussion=`0x5865F2`, header=`0xFEE75C`; unknown types use a neutral fallback
+  (AC-V4-002-008, AC-V4-002-009, AC-V4-002-010, AC-V4-002-011)
+- `mark_seen` still records the full pre-truncation item set — truncation is
+  presentation-only and does not affect idempotency (AC-V4-002-006)
+- `render()` gains `dropped_counts` and `max_items_per_type` keyword params with `None`
+  defaults; calling without them is byte-identical to the previous version (AC-V4-002-012)
+
+---
+
 ## [0.14.0] — 2026-07-13
 
 ### Added (V4-001 Discord Rich Embeds)

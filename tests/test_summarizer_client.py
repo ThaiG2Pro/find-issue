@@ -353,7 +353,7 @@ def test_llm_rate_limit_item_skipped_AC_4_010():
         sleep=lambda _: None,  # no-op — ADR-003
     ).summarize_items([_item()])
     assert result == []
-    # Should have tried max_retries+1 times (initial + 3 retries = 4 attempts)
+    # Should have tried max_retries+1 times (initial + 7 retries = 8 attempts, AC-V4-002-001)
     assert call_count == _CFG.max_retries + 1
 
 
@@ -668,3 +668,64 @@ def test_failure_log_no_api_key_on_retry_exhaust_AC_4_012(caplog):
     assert "test-key" not in log_text
     assert "Body99" not in log_text
     assert "owner/repo/issue/99" in log_text
+
+
+# ---------------------------------------------------------------------------
+# AC-V4-002-001 / AC-V4-002-002 — max_retries default 7, backoff sequence
+# ---------------------------------------------------------------------------
+
+
+def test_max_retries_default_is_7(AC="AC-V4-002-001"):
+    """SummarizerConfig default max_retries is 7 (AC-V4-002-001)."""
+    cfg = SummarizerConfig(model="openai/gpt-4o-mini")
+    assert cfg.max_retries == 7
+
+
+def test_backoff_sequence_1_2_4_8_16_32_64(AC="AC-V4-002-002"):
+    """Backoff waits are 1,2,4,8,16,32,64s over 7 attempts via base*2**attempt (AC-V4-002-002).
+
+    Sleep calls are captured via injected sleep callable — no real waiting.
+    """
+    sleep_calls: list[float] = []
+    call_count = 0
+
+    def fake_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise litellm.exceptions.RateLimitError(
+            message="rate limit", model="m", llm_provider="openai"
+        )
+
+    def fake_sleep(secs: float) -> None:
+        sleep_calls.append(secs)
+
+    _summarizer(
+        completion=fake_completion,
+        sleep=fake_sleep,
+    ).summarize_items([_item()])
+
+    # 7 retries → 7 sleep calls; initial attempt raises but does not sleep
+    assert len(sleep_calls) == 7
+
+    # Each sleep duration = base * 2**attempt where base=1.0
+    expected = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]
+    assert sleep_calls == expected
+
+
+def test_total_attempts_is_8_with_default_retries(AC="AC-V4-002-001"):
+    """Default max_retries=7 → 8 total attempts (initial + 7 retries, AC-V4-002-001)."""
+    call_count = 0
+
+    def fake_completion(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise litellm.exceptions.RateLimitError(
+            message="rate limit", model="m", llm_provider="openai"
+        )
+
+    _summarizer(
+        completion=fake_completion,
+        sleep=lambda _: None,
+    ).summarize_items([_item()])
+
+    assert call_count == 8  # 1 initial + 7 retries

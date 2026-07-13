@@ -27,6 +27,6 @@ class SummarizerConfig:
     # Throttle tunables (AC-V3-001-001, ADR-001)
     tokens_per_minute: int = 6000
     throttle_window_seconds: float = 60.0
-    # Retry tunables (AC-V3-001-006, ADR-005)
-    max_retries: int = 3
+    # Retry tunables (AC-V3-001-006, ADR-005; AC-V4-002-001: default 3→7)
+    max_retries: int = 7
     retry_backoff_base_seconds: float = 1.0

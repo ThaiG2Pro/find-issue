@@ -46,6 +46,20 @@ def _validate_lookback(watchlist: dict) -> int:
     return value
 
 
+def _validate_max_items_per_type(watchlist: dict) -> int:
+    """Parse the optional ``[watchlist] max_items_per_type`` key (AC-V4-002-005, AC-V4-002-005b).
+
+    Bool-trap + strict-int guard mirrors ``_validate_lookback``: ``type(value) is not int``
+    rejects bool/float/str; value < 1 is invalid. Default 10.
+    """
+    value = watchlist.get("max_items_per_type", 10)
+    if type(value) is not int:  # noqa: E721 — bool trap: isinstance(True, int) is True
+        raise ConfigError("max_items_per_type must be an integer")
+    if value < 1:
+        raise ConfigError("max_items_per_type must be ≥ 1")
+    return value
+
+
 def _validate_delta(data: dict) -> bool:
     """Parse the optional ``[delta] enabled`` key, defaulting to ``True`` (AC-V2-001-002).
 
@@ -173,6 +187,9 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
     # Step 5: lookback_days
     lookback_days = _validate_lookback(watchlist)
 
+    # Step 5b: max_items_per_type (AC-V4-002-005)
+    max_items_per_type = _validate_max_items_per_type(watchlist)
+
     # Step 6: token
     github_token = _resolve_token(env)
 
@@ -227,4 +244,5 @@ def load_config(config_path: Path, env: Mapping[str, str] | None = None) -> Conf
         etag_cache_enabled=etag_cache_enabled,
         etag_cache_path=etag_cache_path,
         discord_use_embeds=discord_use_embeds,
+        max_items_per_type=max_items_per_type,
     )

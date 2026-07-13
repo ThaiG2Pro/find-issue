@@ -60,7 +60,13 @@ def _build_item_line(item: SummarizedItem) -> str:
 # ---------------------------------------------------------------------------
 
 
-def render(items: list[SummarizedItem], *, lookback_days: int) -> str:
+def render(
+    items: list[SummarizedItem],
+    *,
+    lookback_days: int,
+    dropped_counts: dict[str, dict[str, int]] | None = None,
+    max_items_per_type: int | None = None,
+) -> str:
     """Transform *items* into a Markdown digest string (AC-5-001..020).
 
     Deterministic (AC-5-004): output is a pure function of *items* + *lookback_days*.
@@ -69,6 +75,12 @@ def render(items: list[SummarizedItem], *, lookback_days: int) -> str:
     group in input order (AC-5-007).  NO set used anywhere (ADR-003, RF-1).
 
     Empty *items* returns a non-empty "No new items" doc; never returns "" (AC-5-008/009).
+
+    When *dropped_counts* is provided (non-None, non-empty) and *max_items_per_type*
+    is set, a truncation alert line is appended immediately after each ``## repo —``
+    header for repos where dropped items exist (ADR-002, AC-V4-002-007/012).
+    Alert form: ``⚠️ +{count} items not shown (limit: {N})``.
+    No alert when dropped_counts is None/empty → byte-identical to pre-change (BR-V4-002-005).
     """
     lines: list[str] = ["# OSS Pulse Digest"]
 
@@ -98,6 +110,13 @@ def render(items: list[SummarizedItem], *, lookback_days: int) -> str:
         lines.append("")
         lines.append(f"## {repo} — {lookback_days} ngày qua")  # AC-5-013
 
+        # Truncation alert (ADR-002, AC-V4-002-007): emit once per repo when drops > 0
+        if dropped_counts and max_items_per_type is not None:
+            repo_drops = dropped_counts.get(repo, {})
+            total_dropped = sum(repo_drops.values())
+            if total_dropped > 0:
+                lines.append(f"⚠️ +{total_dropped} items not shown (limit: {max_items_per_type})")
+
         repo_groups = grouped[repo]
         for gkey in GROUP_ORDER + ["__other__"]:
             group_items = repo_groups.get(gkey)
@@ -125,6 +144,18 @@ class MarkdownDigestRenderer:
     any logic (ADR-001).  No I/O methods — delivery is S6 Delivery's job (AC-5-002).
     """
 
-    def render(self, items: list[SummarizedItem], *, lookback_days: int) -> str:
+    def render(
+        self,
+        items: list[SummarizedItem],
+        *,
+        lookback_days: int,
+        dropped_counts: dict[str, dict[str, int]] | None = None,
+        max_items_per_type: int | None = None,
+    ) -> str:
         """Delegate to the pure free ``render()`` function (AC-5-001/002)."""
-        return render(items, lookback_days=lookback_days)
+        return render(
+            items,
+            lookback_days=lookback_days,
+            dropped_counts=dropped_counts,
+            max_items_per_type=max_items_per_type,
+        )

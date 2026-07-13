@@ -1,6 +1,9 @@
 [watchlist]
 repos = [
-    "getlago/lago", "vercel/next.js"
+    "getlago/lago",
+    "langfuse/langfuse",
+    "openmeterio/openmeter",
+    "flexprice/flexprice",
 ]
 lookback_days = 1
 

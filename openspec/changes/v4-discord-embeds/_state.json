@@ -1,0 +1,86 @@
+{
+  "ticket_id": "V4-001",
+  "change_name": "v4-discord-embeds",
+  "type": "cr",
+  "current_phase": "S3",
+  "last_updated": "2026-07-12",
+  "last_agent": "architect",
+  "rigor": "lite",
+  "scope": "tiny",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "gates": {
+    "S3": "passed"
+  },
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "nothing-reusable"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-12",
+      "completed": "2026-07-12",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/delivery/spec.md (initial)"
+      ],
+      "key_outcome": "Opt-in Discord embeds CR; scope=tiny; main trap = stable color hash (not builtin hash())"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-12",
+      "completed": "2026-07-12",
+      "artifacts_produced": [
+        "specs/delivery/spec.md (scenarios)",
+        "tasks.md"
+      ],
+      "key_outcome": "9 ACs (AC-V4-001-001..008 incl. 002b/008a), 7 BRs, 1 INT; spec-auditor PASS; openspec validate PASS"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-12",
+      "completed": "2026-07-12",
+      "artifacts_produced": [
+        "design.md",
+        "_handoff.md",
+        "_decisions.jsonl",
+        "_glossary.md"
+      ],
+      "key_outcome": "6 ADRs, 0 endpoints (CLI, no openapi), 9 tasks; main trap = hashlib color + code-point limits + payload-parameterized POST"
+    }
+  ],
+  "active_concerns": [
+    "Color MUST use hashlib (stable), not builtin hash()",
+    "Embed limits are code points not bytes: <=10 embeds/request, <=4096 chars/description",
+    "deliver() only receives content:str — embed conversion parses Markdown in-adapter; no osspulse.render import",
+    "Embed POST must reuse status/type-only error message — webhook URL never leaked (T1)"
+  ],
+  "terminology": {
+    "embed": "Discord rich card {title, description, color, footer.text}; max 10/request, description ≤4096 code points",
+    "use_embeds": "[discord] opt-in bool config, default false; strict bool-trap validated at load",
+    "stable color": "hashlib(repo_slug) % palette — deterministic across runs, unlike builtin hash()"
+  },
+  "next_action": {
+    "agent": "sdlc",
+    "command": "approve s3",
+    "prerequisite": "DESIGN REVIEW sign-off",
+    "blocker": "AWAITING DESIGN REVIEW",
+    "routes_to": "developer /s4 V4-001 v4-discord-embeds (only after DESIGN REVIEW PASSES + cross-artifact-audit 0 CRITICAL)",
+    "priority_reading": [
+      "tasks.md",
+      "_handoff.md",
+      "_glossary.md",
+      "design.md §Implementation Guide"
+    ],
+    "watch_items": [
+      "Use hashlib.md5 for color, NEVER builtin hash() — idempotency non-negotiable",
+      "4096/2000 limits are code points (len(str)), not UTF-8 bytes",
+      "Parameterize _post_one for embeds body — never str(exc)/repr(request), preserve timeout",
+      "_parse_sections()==[] is the only fallback trigger (no ## section)"
+    ]
+  }
+}

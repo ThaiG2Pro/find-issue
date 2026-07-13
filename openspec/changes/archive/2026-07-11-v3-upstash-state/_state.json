@@ -1,0 +1,98 @@
+{
+  "ticket_id": "V3-003",
+  "change_name": "v3-upstash-state",
+  "type": "cr",
+  "current_phase": "S6",
+  "last_updated": "2026-07-11",
+  "last_agent": "developer",
+  "rigor": "lite",
+  "scope": "tiny",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "nothing-reusable"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "proposal.md",
+        "specs/upstash-state/spec.md (initial)"
+      ],
+      "key_outcome": "CR scoped: new UpstashStateStore adapter (HTTP REST, upstash-redis) as an alternate seen-state backend selected by UPSTASH_REDIS_REST_URL+TOKEN env presence, else falls back to JsonFileStateStore. No StateStore Protocol change."
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "specs/upstash-state/spec.md (scenarios)",
+        "tasks.md"
+      ],
+      "key_outcome": "8 ACs (V3-003-001..008), 5 BRs, 2 INT, 3 ADDED requirements (new upstash-state capability). openspec validate --strict PASS."
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-11",
+      "completed": "2026-07-11",
+      "artifacts_produced": [
+        "design.md",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "4 ADRs, 0 endpoints (CLI/no-API), 7 tasks (analyst); openspec validate PASS. Adapter implements is_seen(HGET)/mark_seen(HSETNX)+load/save; _build_store env selection; SeenTracker Protocol widening; fail-loud StateError."
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-07-11",
+      "note": "7/7 tasks, 39 new tests, 96% coverage, 0 lint errors. UpstashStateStore + SeenTracker Protocol + _build_store env selection. 0 deviations from design."
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-07-11",
+      "note": "GO \u2014 0 bugs. All 8 ACs verified; HSETNX confirmed; StateError propagation confirmed all 4 sites; no str(exc); StateStore unchanged. 658/658 pass, 96.17% coverage."
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-07-11",
+      "note": "v0.13.0 released. CHANGELOG+version bumped, workflow updated with Upstash env vars, commit 4d00080 pushed to master, change archived as 2026-07-11-v3-upstash-state."
+    }
+  ],
+  "active_concerns": [
+    "R-1: pipeline calls is_seen/mark_seen (concrete helpers), NOT just load/save Protocol \u2014 Upstash adapter MUST implement both with identical semantics or it AttributeErrors at runtime",
+    "R-4/AC-007: env-vars-set => Upstash is authoritative => runtime failure is FATAL (StateError), never a silent local fallback; fallback is construction-time-on-absence ONLY",
+    "AC-003: write-once first_seen_at via HSETNX (set-if-absent), no read-modify-write race",
+    "R-3: REST URL/token are bearer secrets \u2014 never log/error/commit them",
+    "R-2: _partition_new/_collect_all type hints are pinned to JsonFileStateStore \u2014 widen to a shared seen-tracker type"
+  ],
+  "terminology": {
+    "UpstashStateStore": "state backend persisting seen-items in Upstash Redis over HTTP REST (upstash-redis client)",
+    "backend selection": "env-driven choice at construction: both UPSTASH_REDIS_REST_URL+TOKEN present => Upstash, else JsonFileStateStore",
+    "fail loud": "runtime Upstash error => StateError (exit 1), never a silent fallback/empty-state \u2014 because state is the idempotency source of truth",
+    "HSETNX": "Redis set-hash-field-if-absent; enforces write-once first_seen_at"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  },
+  "gates": {
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  }
+}

@@ -72,9 +72,9 @@ def _parse_sections(content: str) -> list[dict]:
     # All segments after the leading "- #id" are optional.
     _ITEM_RE = _re.compile(
         r"^- #\S+\s*"  # - #id (mandatory)
-        r'(?:"(?P<title>[^"]*)")?\s*'  # optional "title"
+        r'(?:"(?P<title>[^"]*)")? \s*'  # optional "title"
         r"(?:\u2014\s*(?P<summary>.*?))?"  # optional — summary (em-dash U+2014)
-        r"(?:\s*\[link\]\([^)]*\))?"  # optional [link](url)
+        r"(?:\s*\[link\]\((?P<url>[^)]*)\))?"  # optional [link](url) — capture url
         r"\s*$"
     )
 
@@ -114,6 +114,7 @@ def _parse_sections(content: str) -> list[dict]:
                         "item_type": current_item_type,
                         "title": (m.group("title") or "").strip(),
                         "summary": (m.group("summary") or "").strip(),
+                        "url": (m.group("url") or "").strip(),
                     }
                 )
         else:
@@ -203,14 +204,15 @@ def _build_embeds(sections: list[dict]) -> list[dict]:
                 color = _ITEM_TYPE_COLORS.get(item_type, _ITEM_TYPE_COLOR_FALLBACK)
                 item_title = item["title"][:256] if item["title"] else repo_slug
                 summary = item["summary"] or "(no summary)"
-                embeds.append(
-                    {
-                        "title": item_title,
-                        "description": summary,
-                        "color": color,
-                        "footer": {"text": f"{repo_slug} \u2022 {item_type} \u2022 OSS Pulse"},
-                    }
-                )
+                embed = {
+                    "title": item_title,
+                    "description": summary,
+                    "color": color,
+                    "footer": {"text": f"{repo_slug} \u2022 {item_type} \u2022 OSS Pulse"},
+                }
+                if item.get("url"):
+                    embed["url"] = item["url"]
+                embeds.append(embed)
         else:
             # Zero items parsed — emit a plain body embed (legacy shape, used by fallback check)
             body = section.get("body", "")

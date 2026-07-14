@@ -1,4 +1,5 @@
-"""Unit tests for DiscordDelivery adapter (AC-V2-005-001..003, 008..011, AC-V4-002-008..011)."""
+"""Unit tests for DiscordDelivery adapter (AC-V2-005-001..003, 008..011, AC-V4-002-008..011,
+AC-001-001..011)."""
 
 import sys
 from unittest.mock import MagicMock
@@ -26,9 +27,13 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/123/secret_token"
 # ---------------------------------------------------------------------------
 
 
-def _make_response(status_code: int) -> httpx.Response:
-    """Build a minimal httpx.Response with the given status code."""
-    return httpx.Response(status_code, request=httpx.Request("POST", WEBHOOK_URL))
+def _make_response(status_code: int, headers: dict | None = None) -> httpx.Response:
+    """Build a minimal httpx.Response with the given status code (and optional headers)."""
+    return httpx.Response(
+        status_code,
+        headers=headers or {},
+        request=httpx.Request("POST", WEBHOOK_URL),
+    )
 
 
 def _mock_client(status_code: int = 204) -> MagicMock:
@@ -36,6 +41,29 @@ def _mock_client(status_code: int = 204) -> MagicMock:
     client = MagicMock(spec=httpx.Client)
     client.post.return_value = _make_response(status_code)
     return client
+
+
+def _delivery(
+    status_code: int = 204,
+    *,
+    max_retries: int = 3,
+    backoff_base: float = 1.0,
+    sleep: object = None,
+    use_embeds: bool = False,
+    client: MagicMock | None = None,
+) -> tuple[DiscordDelivery, MagicMock]:
+    """Return (DiscordDelivery, mock_client) with a fake sleep injected."""
+    fake_sleep = sleep if sleep is not None else MagicMock()
+    c = client if client is not None else _mock_client(status_code)
+    d = DiscordDelivery(
+        WEBHOOK_URL,
+        client=c,
+        max_retries=max_retries,
+        backoff_base=backoff_base,
+        sleep=fake_sleep,
+        use_embeds=use_embeds,
+    )
+    return d, c
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +90,6 @@ def test_multi_message_sends_multiple_posts(AC="AC-V2-005-001"):
     """Digest > 2000 chars → one POST per split message (AC-V2-005-001)."""
     client = _mock_client(200)
     d = DiscordDelivery(WEBHOOK_URL, client=client)
-    # Build content that will split into ≥2 messages
     section = "## owner/repo — 7 ngày qua\n" + ("- #1 item\n" * 80)
     content = "# OSS Pulse Digest\n\n" + section + section + section
 
@@ -92,8 +119,6 @@ def test_post_payload_structure(AC="AC-V2-005-001"):
 
 def test_port_compatibility(AC="AC-V2-005-002"):
     """DiscordDelivery structurally satisfies the Delivery Protocol (AC-V2-005-002)."""
-    # Delivery Protocol requires deliver(self, content: str) -> None
-    # Verify by duck-type inspection (Protocol is not runtime_checkable)
     d = DiscordDelivery(WEBHOOK_URL, client=_mock_client())
     assert callable(getattr(d, "deliver", None)), "DiscordDelivery must have a deliver method"
 
@@ -108,19 +133,54 @@ def test_deliver_method_signature(AC="AC-V2-005-002"):
 
 # ---------------------------------------------------------------------------
 # AC-V2-005-008 — non-2xx HTTP response → DeliveryError
+# (split per AC-001-004: 400/401/404 immediate; 429/500/503 retry-then-error)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("status", [400, 401, 404, 429, 500, 503])
-def test_non_2xx_raises_delivery_error(status, AC="AC-V2-005-008"):
-    """Non-2xx HTTP status → DeliveryError (AC-V2-005-008)."""
+@pytest.mark.parametrize("status", [400, 401, 404])
+def test_non_transient_4xx_raises_immediately(status, AC="AC-V2-005-008/AC-001-004"):
+    """Non-transient 4xx → DeliveryError immediately; exactly 1 POST, sleep never called
+    (AC-V2-005-008, AC-001-004)."""
+    fake_sleep = MagicMock()
     client = _mock_client(status)
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    d = DiscordDelivery(
+        WEBHOOK_URL,
+        client=client,
+        max_retries=3,
+        backoff_base=1.0,
+        sleep=fake_sleep,
+    )
 
     with pytest.raises(DeliveryError) as exc_info:
         d.deliver("content")
 
     assert str(status) in str(exc_info.value)
+    assert client.post.call_count == 1
+    fake_sleep.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_transient_exhausted_raises_delivery_error(status, AC="AC-V2-005-008/AC-001-002"):
+    """Transient status codes exhaust retries then raise DeliveryError (AC-V2-005-008,
+    AC-001-002)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.return_value = _make_response(status)
+    d = DiscordDelivery(
+        WEBHOOK_URL,
+        client=client,
+        max_retries=2,
+        backoff_base=1.0,
+        sleep=fake_sleep,
+    )
+
+    with pytest.raises(DeliveryError) as exc_info:
+        d.deliver("content")
+
+    assert str(status) in str(exc_info.value)
+    # initial + 2 retries = 3 POSTs; 2 sleeps between them
+    assert client.post.call_count == 3
+    assert fake_sleep.call_count == 2
 
 
 def test_2xx_204_is_success(AC="AC-V2-005-008"):
@@ -146,7 +206,7 @@ def test_connect_error_raises_delivery_error(AC="AC-V2-005-009"):
     """httpx.ConnectError → DeliveryError (AC-V2-005-009)."""
     client = MagicMock(spec=httpx.Client)
     client.post.side_effect = httpx.ConnectError("connection refused")
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    d = DiscordDelivery(WEBHOOK_URL, client=client, max_retries=0)
 
     with pytest.raises(DeliveryError, match="ConnectError"):
         d.deliver("content")
@@ -156,7 +216,7 @@ def test_network_error_raises_delivery_error(AC="AC-V2-005-009"):
     """httpx.NetworkError → DeliveryError (AC-V2-005-009)."""
     client = MagicMock(spec=httpx.Client)
     client.post.side_effect = httpx.NetworkError("network failure")
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    d = DiscordDelivery(WEBHOOK_URL, client=client, max_retries=0)
 
     with pytest.raises(DeliveryError, match="NetworkError"):
         d.deliver("content")
@@ -171,7 +231,7 @@ def test_timeout_raises_delivery_error(AC="AC-V2-005-010"):
     """httpx.TimeoutException → DeliveryError mentioning timeout (AC-V2-005-010)."""
     client = MagicMock(spec=httpx.Client)
     client.post.side_effect = httpx.TimeoutException("timed out")
-    d = DiscordDelivery(WEBHOOK_URL, timeout=10.0, client=client)
+    d = DiscordDelivery(WEBHOOK_URL, timeout=10.0, client=client, max_retries=0)
 
     with pytest.raises(DeliveryError, match="timed out"):
         d.deliver("content")
@@ -181,7 +241,7 @@ def test_read_timeout_raises_delivery_error(AC="AC-V2-005-010"):
     """httpx.ReadTimeout → DeliveryError (AC-V2-005-010)."""
     client = MagicMock(spec=httpx.Client)
     client.post.side_effect = httpx.ReadTimeout("read timeout")
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    d = DiscordDelivery(WEBHOOK_URL, client=client, max_retries=0)
 
     with pytest.raises(DeliveryError):
         d.deliver("content")
@@ -194,8 +254,8 @@ def test_read_timeout_raises_delivery_error(AC="AC-V2-005-010"):
 
 def test_http_error_does_not_leak_url(AC="AC-V2-005-011"):
     """DeliveryError from non-2xx must NOT contain the webhook URL (AC-V2-005-011)."""
-    client = _mock_client(500)
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    client = _mock_client(400)
+    d = DiscordDelivery(WEBHOOK_URL, client=client, max_retries=0)
 
     with pytest.raises(DeliveryError) as exc_info:
         d.deliver("content")
@@ -209,7 +269,7 @@ def test_connection_error_does_not_leak_url(AC="AC-V2-005-011"):
     """DeliveryError from connection error must NOT contain the webhook URL (AC-V2-005-011)."""
     client = MagicMock(spec=httpx.Client)
     client.post.side_effect = httpx.ConnectError("connection refused")
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    d = DiscordDelivery(WEBHOOK_URL, client=client, max_retries=0)
 
     with pytest.raises(DeliveryError) as exc_info:
         d.deliver("content")
@@ -223,7 +283,7 @@ def test_timeout_error_does_not_leak_url(AC="AC-V2-005-011"):
     """DeliveryError from timeout must NOT contain the webhook URL (AC-V2-005-011)."""
     client = MagicMock(spec=httpx.Client)
     client.post.side_effect = httpx.TimeoutException("timed out")
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    d = DiscordDelivery(WEBHOOK_URL, client=client, max_retries=0)
 
     with pytest.raises(DeliveryError) as exc_info:
         d.deliver("content")
@@ -238,9 +298,9 @@ def test_multi_message_second_fails_after_first_sent(AC="AC-V2-005-011"):
     client = MagicMock(spec=httpx.Client)
     client.post.side_effect = [
         _make_response(204),  # msg 1: success
-        httpx.ConnectError("fail"),  # msg 2: failure
+        httpx.ConnectError("fail"),  # msg 2: failure (max_retries=0 → immediate)
     ]
-    d = DiscordDelivery(WEBHOOK_URL, client=client)
+    d = DiscordDelivery(WEBHOOK_URL, client=client, max_retries=0)
 
     section = "## owner/repo — 7 ngày qua\n" + ("- #1 item\n" * 80)
     content = "# OSS Pulse Digest\n\n" + section + section + section
@@ -248,9 +308,7 @@ def test_multi_message_second_fails_after_first_sent(AC="AC-V2-005-011"):
     with pytest.raises(DeliveryError) as exc_info:
         d.deliver(content)
 
-    # msg 1 was posted
     assert client.post.call_count == 2
-    # URL not in error
     assert WEBHOOK_URL not in str(exc_info.value)
 
 
@@ -264,7 +322,6 @@ def test_no_upstream_imports(AC="AC-V2-005-003"):
     import osspulse.delivery.discord_delivery as mod
 
     forbidden = {"osspulse.github", "osspulse.summarizer", "osspulse.cache", "osspulse.render"}
-    # Inspect the module's globals for any imported module from the forbidden set.
     for name, obj in vars(mod).items():
         if hasattr(obj, "__module__"):
             for forbidden_prefix in forbidden:
@@ -272,16 +329,323 @@ def test_no_upstream_imports(AC="AC-V2-005-003"):
                     f"{name} imports from forbidden module {obj.__module__}"
                 )
 
-    # Also check sys.modules for any import side-effects.
     for mod_name in sys.modules:
         for forbidden_prefix in forbidden:
             if mod_name.startswith(forbidden_prefix):
-                # Only fail if that module was imported BY discord_delivery, not
-                # already present from other test imports.
                 source = getattr(sys.modules.get(mod_name), "__file__", "") or ""
                 assert "discord_delivery" not in source, (
                     f"discord_delivery imported forbidden module {mod_name}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# AC-001-001 / AC-001-005 — transient success on retry
+# ---------------------------------------------------------------------------
+
+
+def test_transient_503_then_success(AC="AC-001-001/AC-001-005"):
+    """503-then-204 with max_retries=3 → returns normally; 2 POSTs, sleep called once
+    (AC-001-001, AC-001-005)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = [_make_response(503), _make_response(204)]
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    d.deliver("content")
+
+    assert client.post.call_count == 2
+    fake_sleep.assert_called_once()
+
+
+def test_request_error_then_success(AC="AC-001-001/AC-001-005"):
+    """RequestError-then-204 with max_retries=3 → returns normally; 2 POSTs, sleep called once
+    (AC-001-001, AC-001-005)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = [httpx.ConnectError("fail"), _make_response(204)]
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    d.deliver("content")
+
+    assert client.post.call_count == 2
+    fake_sleep.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# AC-001-002 / AC-001-003 — retries exhausted
+# ---------------------------------------------------------------------------
+
+
+def test_all_500_exhausts_retries(AC="AC-001-002"):
+    """All 500 responses: max_retries=3 → 4 POSTs, 3 sleeps, DeliveryError (AC-001-002)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.return_value = _make_response(500)
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    with pytest.raises(DeliveryError) as exc_info:
+        d.deliver("content")
+
+    assert client.post.call_count == 4  # initial + 3 retries
+    assert fake_sleep.call_count == 3
+    assert "500" in str(exc_info.value)
+
+
+def test_all_timeout_exhausts_retries(AC="AC-001-003"):
+    """All TimeoutException: max_retries=2 → 3 POSTs, 2 sleeps, error mentions timeout
+    (AC-001-003)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = httpx.TimeoutException("timed out")
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=2, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    with pytest.raises(DeliveryError) as exc_info:
+        d.deliver("content")
+
+    assert client.post.call_count == 3
+    assert fake_sleep.call_count == 2
+    assert "timed out" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# AC-001-004 — non-transient 4xx immediate (403 specifically)
+# ---------------------------------------------------------------------------
+
+
+def test_403_raises_immediately(AC="AC-001-004"):
+    """HTTP 403 → one POST, sleep never called, DeliveryError (AC-001-004)."""
+    fake_sleep = MagicMock()
+    client = _mock_client(403)
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    with pytest.raises(DeliveryError) as exc_info:
+        d.deliver("content")
+
+    assert "403" in str(exc_info.value)
+    assert client.post.call_count == 1
+    fake_sleep.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# AC-001-006 — Retry-After header handling
+# ---------------------------------------------------------------------------
+
+
+def test_retry_after_floors_backoff(AC="AC-001-006"):
+    """429 + Retry-After: 5, backoff_base=1.0 → sleep called with 5 (max(5, 1.0))
+    (AC-001-006)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = [
+        _make_response(429, headers={"Retry-After": "5"}),
+        _make_response(204),
+    ]
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    d.deliver("content")
+
+    fake_sleep.assert_called_once_with(5.0)
+
+
+def test_missing_retry_after_uses_pure_backoff(AC="AC-001-006"):
+    """429 + no Retry-After → no crash; sleep called with pure backoff value (AC-001-006)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = [_make_response(429), _make_response(204)]
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    d.deliver("content")
+
+    fake_sleep.assert_called_once_with(1.0)  # backoff_base * 2**0 = 1.0
+
+
+def test_non_numeric_retry_after_falls_back_to_backoff(AC="AC-001-006"):
+    """429 + Retry-After: 'soon' → no crash; sleep called with pure backoff (AC-001-006)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = [
+        _make_response(429, headers={"Retry-After": "soon"}),
+        _make_response(204),
+    ]
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    d.deliver("content")
+
+    fake_sleep.assert_called_once_with(1.0)
+
+
+# ---------------------------------------------------------------------------
+# AC-001-007 — backoff growth is monotonic (backoff_base * 2**attempt)
+# ---------------------------------------------------------------------------
+
+
+def test_backoff_growth_follows_formula(AC="AC-001-007"):
+    """3 consecutive transient 500s, backoff_base=1.0 → sleep args [1.0, 2.0, 4.0]
+    (AC-001-007)."""
+    sleep_calls: list[float] = []
+    client = MagicMock(spec=httpx.Client)
+    client.post.return_value = _make_response(500)
+    d = DiscordDelivery(
+        WEBHOOK_URL,
+        client=client,
+        max_retries=3,
+        backoff_base=1.0,
+        sleep=lambda s: sleep_calls.append(s),
+    )
+
+    with pytest.raises(DeliveryError):
+        d.deliver("content")
+
+    assert sleep_calls == [1.0, 2.0, 4.0]
+
+
+# ---------------------------------------------------------------------------
+# AC-001-008 — embed-parity: embed POST also retried
+# ---------------------------------------------------------------------------
+
+_SAMPLE_EMBED_CONTENT = """\
+## vercel/next.js — 1 ngày qua
+### Issue mới (1)
+- #42 "Fix parser crash" \u2014 Parser crashes on empty input. [link](https://github.com/vercel/next.js/issues/42)
+"""
+
+
+def test_embed_parity_retry_then_success(AC="AC-001-008"):
+    """Embed batch POST 429-then-204 (use_embeds=True) → retried, returns normally, sleep
+    called once (AC-001-008)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = [_make_response(429), _make_response(204)]
+    d = DiscordDelivery(
+        WEBHOOK_URL,
+        client=client,
+        max_retries=3,
+        backoff_base=1.0,
+        sleep=fake_sleep,
+        use_embeds=True,
+    )
+
+    d.deliver(_SAMPLE_EMBED_CONTENT)
+
+    assert client.post.call_count == 2
+    fake_sleep.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# AC-001-009 — per-message budget (no rollback of already-delivered messages)
+# ---------------------------------------------------------------------------
+
+
+def test_per_message_budget_independent(AC="AC-001-009"):
+    """2-message split: msg1=204, msg2=503-then-204 → msg1 POSTed once (no re-send),
+    msg2 retried on its own budget (AC-001-009)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    # msg1 success, msg2 first attempt fails, msg2 retry succeeds
+    client.post.side_effect = [
+        _make_response(204),
+        _make_response(503),
+        _make_response(204),
+    ]
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=3, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    section = "## owner/repo — 7 ngày qua\n" + ("- #1 item\n" * 80)
+    content = "# OSS Pulse Digest\n\n" + section + section + section
+
+    d.deliver(content)  # must not raise
+
+    # msg1: 1 POST; msg2: 2 POSTs (retry) — total 3 (or more if content splits further)
+    # The key assertion is that msg1 was POSTed exactly once (not re-sent on msg2 failure)
+    first_call_body = (
+        client.post.call_args_list[0].kwargs.get("json") or client.post.call_args_list[0][1]["json"]
+    )
+    second_call_body = (
+        client.post.call_args_list[1].kwargs.get("json") or client.post.call_args_list[1][1]["json"]
+    )
+    # msg1 and msg2 have different content (they're different split chunks)
+    assert first_call_body["content"] != second_call_body["content"]
+    fake_sleep.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# AC-001-010 / AC-V2-005-011 — post-retry URL secrecy
+# ---------------------------------------------------------------------------
+
+
+def test_post_retry_url_secrecy_http(AC="AC-001-010/AC-V2-005-011"):
+    """After retries exhausted via 500, final DeliveryError contains neither webhook URL
+    nor secret_token (AC-001-010, AC-V2-005-011)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.return_value = _make_response(500)
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=2, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    with pytest.raises(DeliveryError) as exc_info:
+        d.deliver("content")
+
+    msg = str(exc_info.value)
+    assert WEBHOOK_URL not in msg
+    assert "secret_token" not in msg
+
+
+def test_post_retry_url_secrecy_timeout(AC="AC-001-010/AC-V2-005-011"):
+    """After retries exhausted via TimeoutException, final DeliveryError does not leak URL
+    (AC-001-010, AC-V2-005-011)."""
+    fake_sleep = MagicMock()
+    client = MagicMock(spec=httpx.Client)
+    client.post.side_effect = httpx.TimeoutException("timed out")
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=2, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    with pytest.raises(DeliveryError) as exc_info:
+        d.deliver("content")
+
+    msg = str(exc_info.value)
+    assert WEBHOOK_URL not in msg
+    assert "secret_token" not in msg
+
+
+# ---------------------------------------------------------------------------
+# AC-001-011 — max_retries=0 reproduces single-attempt behavior
+# ---------------------------------------------------------------------------
+
+
+def test_max_retries_zero_no_retry_no_sleep(AC="AC-001-011"):
+    """max_retries=0 + transient 503 → exactly one POST, sleep never called, DeliveryError
+    immediately (AC-001-011)."""
+    fake_sleep = MagicMock()
+    client = _mock_client(503)
+    d = DiscordDelivery(
+        WEBHOOK_URL, client=client, max_retries=0, backoff_base=1.0, sleep=fake_sleep
+    )
+
+    with pytest.raises(DeliveryError) as exc_info:
+        d.deliver("content")
+
+    assert "503" in str(exc_info.value)
+    assert client.post.call_count == 1
+    fake_sleep.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +756,6 @@ class TestItemTypeColors:
         """Color map is a plain dict — no hashlib or builtin hash() (AC-V4-002-010)."""
         import osspulse.delivery.discord_delivery as mod
 
-        # Confirm hashlib is not imported
         assert "hashlib" not in dir(mod)
 
 
@@ -412,10 +775,9 @@ class TestSplitDescription:
 
     def test_uses_code_points_not_bytes(self):
         """Measurement uses len() (code points), not byte length (AC-V4-001-003)."""
-        # Vietnamese character = 3 bytes but 1 code point
         body = "à" * 4096
         chunks = _split_description(body)
-        assert len(chunks) == 1  # exactly 4096 code points, fits
+        assert len(chunks) == 1
 
 
 class TestBuildEmbeds:
@@ -425,7 +787,6 @@ class TestBuildEmbeds:
         """Each section with items produces a header embed (AC-V4-002-009)."""
         sections = _parse_sections(_SAMPLE_CONTENT_WITH_ITEMS)
         embeds = _build_embeds(sections)
-        # First embed is the header
         header = embeds[0]
         assert header["color"] == _REPO_HEADER_COLOR
         assert "vercel/next.js" in header["title"]
@@ -435,7 +796,6 @@ class TestBuildEmbeds:
         """Each item embed has correct title, description, color, footer (AC-V4-002-011)."""
         sections = _parse_sections(_SAMPLE_CONTENT_WITH_ITEMS)
         embeds = _build_embeds(sections)
-        # embeds[0] is header, embeds[1] and [2] are items
         item_embed = embeds[1]
         assert item_embed["title"] == "Fix parser crash"
         assert "Parser crashes" in item_embed["description"]
@@ -454,7 +814,7 @@ class TestBuildEmbeds:
         )
         sections = _parse_sections(content)
         embeds = _build_embeds(sections)
-        item_embed = embeds[1]  # [0] is header
+        item_embed = embeds[1]
         assert len(item_embed["title"]) == 256
 
     def test_fallback_color_for_other_type(self):
@@ -473,7 +833,7 @@ class TestBuildEmbeds:
         """Section without parseable items still produces an embed (legacy path) (AC-V4-001-006)."""
         sections = _parse_sections(_SAMPLE_CONTENT)
         embeds = _build_embeds(sections)
-        assert len(embeds) >= 2  # at least one per section
+        assert len(embeds) >= 2
 
     def test_embed_has_required_keys(self):
         """Each embed has title, description, color, footer (AC-V4-001-001)."""
@@ -493,7 +853,7 @@ class TestBuildEmbeds:
 
     def test_description_truncated_at_4096(self):
         """Long body is split; each embed description ≤4096 code points (AC-V4-001-003)."""
-        long_body = ("word " * 1000).strip()  # ~5000 chars
+        long_body = ("word " * 1000).strip()
         sections = [{"title": "owner/repo — 1 ngày qua", "body": long_body, "items": []}]
         embeds = _build_embeds(sections)
         for embed in embeds:
@@ -543,7 +903,6 @@ class TestDiscordDeliveryEmbedMode:
         """use_embeds=True + sections with zero parsed items → plain text fallback (ADR-003)."""
         client = _mock_client(204)
         delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
-        # _SAMPLE_CONTENT has no "- #" item lines → zero parsed items → fallback
         delivery.deliver(_SAMPLE_CONTENT)
         body = client.post.call_args.kwargs.get("json") or client.post.call_args[1]["json"]
         assert "content" in body
@@ -568,14 +927,12 @@ class TestDiscordDeliveryEmbedMode:
     def test_embed_batching_10_items_plus_header(self):
         """10 items + 1 header = 11 embeds → 2 requests (AC-V4-002-008)."""
         client = _mock_client(204)
-        # Build content with 10 items in one repo section
         item_lines = "".join(
             f'- #{i} "Issue {i}" \u2014 Summary {i}. [link](https://x/{i})\n' for i in range(10)
         )
         content = f"## owner/repo — 7 ngày qua\n### Issue mới (10)\n{item_lines}"
         delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
         delivery.deliver(content)
-        # 1 header + 10 items = 11 → 2 batches (≤10 each)
         assert client.post.call_count == 2
         calls = client.post.call_args_list
         first_body = calls[0].kwargs.get("json") or calls[0][1]["json"]
@@ -587,7 +944,7 @@ class TestDiscordDeliveryEmbedMode:
         """Reshaped embed POST error must not leak webhook URL (T1)."""
         client = MagicMock(spec=httpx.Client)
         client.post.side_effect = httpx.TimeoutException("timed out")
-        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True)
+        delivery = DiscordDelivery(WEBHOOK_URL, client=client, use_embeds=True, max_retries=0)
         with pytest.raises(DeliveryError) as exc_info:
             delivery.deliver(_SAMPLE_CONTENT_WITH_ITEMS)
         assert WEBHOOK_URL not in str(exc_info.value)

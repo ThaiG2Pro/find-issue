@@ -1,0 +1,120 @@
+{
+  "ticket_id": "001",
+  "feature_slug": "discord-retry",
+  "change_name": "discord-retry",
+  "type": "feature",
+  "rigor": "lite",
+  "testcase_export": "none",
+  "test_scope": "module",
+  "scope": "tiny",
+  "phases": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "isolation": {
+    "method": "branch",
+    "branch": "feature/001-discord-retry",
+    "worktree_path": null,
+    "base_branch": "master"
+  },
+  "current_phase": "DONE",
+  "gates": {
+    "S2": "passed",
+    "S3": "passed",
+    "S4": "passed",
+    "S5": "passed",
+    "S6": "passed"
+  },
+  "convergence": {},
+  "last_updated": "2026-07-14",
+  "last_agent": "developer",
+  "deploy_status": {
+    "master": "pending"
+  },
+  "phase_history": [
+    {
+      "phase": "S1",
+      "agent": "analyst",
+      "started": "2026-07-14",
+      "completed": "2026-07-14",
+      "artifacts_produced": [
+        "proposal.md",
+        "spec deltas (initial)"
+      ],
+      "key_outcome": "transient/non-transient classification + backoff design; MODIFIED fatal reqs not pure ADD"
+    },
+    {
+      "phase": "S2",
+      "agent": "analyst",
+      "started": "2026-07-14",
+      "completed": "2026-07-14",
+      "artifacts_produced": [
+        "specs/delivery/spec.md (scenarios)",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl"
+      ],
+      "key_outcome": "11 new ACs, 4 BRs, 1 ADDED + 2 MODIFIED reqs, spec-auditor PASS, openspec validate PASS"
+    },
+    {
+      "phase": "S3",
+      "agent": "architect",
+      "started": "2026-07-14",
+      "completed": "2026-07-14",
+      "artifacts_produced": [
+        "design.md",
+        "tasks.md",
+        "_handoff.md",
+        "_glossary.md",
+        "_decisions.jsonl",
+        "_progress.md"
+      ],
+      "key_outcome": "2 ADRs, 0 endpoints (CLI), 6 task groups (16 tasks, 2 checkpoints); openspec validate PASS"
+    },
+    {
+      "phase": "S4",
+      "agent": "developer",
+      "date": "2026-07-14",
+      "note": "1 file changed (discord_delivery.py): constructor +3 params, _parse_retry_after, _do_post_with_retry, refactored _post_one/_post_one_embed; 81 tests pass, 94% coverage, 0 lint errors, 0 deviations from design"
+    },
+    {
+      "phase": "S5",
+      "agent": "qa",
+      "date": "2026-07-14",
+      "note": "GO — 0 bugs, 17 ACs verified, 81 tests pass, 94% coverage, T1 URL leak clean, backoff formula correct"
+    },
+    {
+      "phase": "S6",
+      "agent": "developer",
+      "date": "2026-07-14",
+      "note": "release.md created, openspec archive ran (1 added + 2 modified in delivery/spec.md), change archived as 2026-07-14-discord-retry"
+    }
+  ],
+  "active_concerns": [
+    "T1 URL leak verified by 2 dedicated tests (task 5.10)",
+    "embed-path TimeoutException exhaustion not explicitly tested — low risk, covered by parity test",
+    "_parse_retry_after math.isfinite guard for inf/nan not explicitly tested"
+  ],
+  "terminology": {
+    "Transient failure": "429/5xx/TimeoutException/RequestError — retried",
+    "Non-transient failure": "non-2xx except 429 (4xx) — fatal immediately",
+    "Backoff wait": "max(Retry-After, backoff_base*2**attempt) or pure backoff if no numeric Retry-After",
+    "Per-POST retry budget": "each split message/embed batch retries independently, no rollback"
+  },
+  "next_action": {
+    "agent": null,
+    "command": null,
+    "prerequisite": "Deploy + monitor 30min",
+    "blocker": null
+  },
+  "memory_writeback": {
+    "analyst": "appended",
+    "architect": "appended",
+    "developer": "appended",
+    "qa": "appended"
+  }
+}

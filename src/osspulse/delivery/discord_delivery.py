@@ -11,6 +11,8 @@ AC-V2-005-011). Error text is composed from HTTP status codes and exception
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import httpx
@@ -337,7 +339,7 @@ def _enforce_limit(text: str, limit: int) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# DiscordDelivery adapter (AC-V2-005-001..011)
+# DiscordDelivery adapter (AC-V2-005-001..011, AC-001-001..011)
 # ---------------------------------------------------------------------------
 
 
@@ -351,6 +353,13 @@ class DiscordDelivery:
     The *client* parameter exists solely for test injection (AC-V2-005-003).
     Production code passes ``client=None`` and a fresh httpx.Client is created
     internally and closed after the call.
+
+    Retry params (AC-001-001..011):
+    - *max_retries*: max retries after the initial attempt (default 3; 0 = no retry).
+    - *backoff_base*: base seconds for exponential backoff ``backoff_base * 2**attempt``
+      (default 1.0).
+    - *sleep*: callable invoked between retry attempts (default ``time.sleep``; inject
+      a fake in tests to avoid real delays).
     """
 
     def __init__(
@@ -359,11 +368,17 @@ class DiscordDelivery:
         timeout: float = 10.0,
         client: httpx.Client | None = None,
         use_embeds: bool = False,
+        max_retries: int = 3,
+        backoff_base: float = 1.0,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._webhook_url = webhook_url
         self._timeout = timeout
         self._external_client = client  # None → create internally
         self._use_embeds = use_embeds
+        self._max_retries = max_retries
+        self._backoff_base = backoff_base
+        self._sleep = sleep
 
     def deliver(self, content: str) -> None:
         """Split *content* and POST each chunk to the Discord webhook (AC-V2-005-001).
@@ -372,15 +387,15 @@ class DiscordDelivery:
         POST Discord Embed objects ({embeds: [...]}) instead of plain text
         (AC-V4-001-005/006).  Falls back to plain text when no sections are found.
 
-        Failure semantics (BR-V2-005-004):
-        - Any non-2xx response   → DeliveryError (AC-V2-005-008)
-        - Connection/DNS error   → DeliveryError (AC-V2-005-009)
-        - Timeout (~self._timeout s) → DeliveryError (AC-V2-005-010)
-        - Multi-message: fail fatally at first failure; earlier messages already
-          delivered (RISK-1, no rollback).
+        Failure semantics (BR-V2-005-004, AC-001-001..011):
+        - Transient failures (429/5xx/TimeoutException/RequestError) are retried up to
+          max_retries times with exponential backoff, Retry-After-floored for 429.
+        - Non-transient 4xx (except 429) → DeliveryError immediately, no sleep.
+        - After budget exhausted → DeliveryError; error built from status/type-name only.
+        - Multi-message: per-POST retry budget; already-delivered POSTs never re-sent.
 
         Error messages are built from status codes / exception type names — the
-        webhook URL is NEVER included (AC-V2-005-011).
+        webhook URL is NEVER included (AC-V2-005-011, AC-001-010).
         """
         if self._use_embeds:
             sections = _parse_sections(content)
@@ -417,52 +432,106 @@ class DiscordDelivery:
         for i, batch in enumerate(batches, start=1):
             self._post_one_embed(client, batch, index=i, total=len(batches))
 
+    @staticmethod
+    def _parse_retry_after(response: httpx.Response) -> float | None:
+        """Return the Retry-After header as a finite float, or None if missing/non-numeric.
+
+        Never raises — treats any malformed value as absent (AC-001-006, BR-001-003).
+        """
+        raw = response.headers.get("Retry-After", "")
+        if not raw:
+            return None
+        try:
+            value = float(raw)
+        except (ValueError, OverflowError):
+            return None
+        import math
+
+        if not math.isfinite(value):
+            return None
+        return value
+
+    def _do_post_with_retry(
+        self,
+        client: httpx.Client,
+        *,
+        json_body: dict,
+        noun: str,
+        unit: str,
+        index: int,
+        total: int,
+    ) -> None:
+        """Shared per-POST attempt loop with retry + backoff (AC-001-001..011, ADR-001).
+
+        Classifies each failure as transient (429/5xx/TimeoutException/RequestError) or
+        non-transient (other non-2xx 4xx).  Transient failures are retried up to
+        self._max_retries times; non-transient failures raise immediately.
+
+        Backoff wait = max(Retry-After, backoff_base * 2**attempt) when a numeric
+        Retry-After header is present; pure backoff otherwise (ADR-002).
+
+        sleep() is called only between attempts, never after the final failure
+        (AC-001-002, AC-001-003).  Error text is built from status code or exception
+        type name only — never str(exc) or repr(request) (T1, AC-001-010).
+        """
+        attempt = 0
+        while True:
+            # --- attempt ---
+            transient = False
+            retry_after: float | None = None
+            error_msg: str | None = None
+
+            try:
+                response = client.post(
+                    self._webhook_url,
+                    json=json_body,
+                    timeout=self._timeout,
+                )
+            except httpx.TimeoutException:
+                # TimeoutException must be caught before RequestError (subclass ordering)
+                transient = True
+                error_msg = f"{noun} timed out after {self._timeout}s ({unit} {index}/{total})"
+            except httpx.RequestError as exc:
+                transient = True
+                error_msg = f"{noun} failed: {type(exc).__name__} ({unit} {index}/{total})"
+            else:
+                if 200 <= response.status_code < 300:
+                    return  # success
+                status = response.status_code
+                transient = status == 429 or 500 <= status <= 599
+                retry_after = self._parse_retry_after(response) if transient else None
+                error_msg = f"{noun} failed: HTTP {status} ({unit} {index}/{total})"
+
+            # --- retry or raise ---
+            if transient and attempt < self._max_retries:
+                backoff = self._backoff_base * (2**attempt)
+                wait = max(retry_after, backoff) if retry_after is not None else backoff
+                self._sleep(wait)
+                attempt += 1
+                continue
+
+            raise DeliveryError(error_msg)  # type: ignore[arg-type]
+
     def _post_one_embed(
         self, client: httpx.Client, embeds: list[dict], *, index: int, total: int
     ) -> None:
-        """POST a single embed batch; raise DeliveryError without leaking the URL."""
-        try:
-            response = client.post(
-                self._webhook_url,
-                json={"embeds": embeds},
-                timeout=self._timeout,
-            )
-        except httpx.TimeoutException as exc:
-            raise DeliveryError(
-                f"discord embed delivery timed out after {self._timeout}s (batch {index}/{total})"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise DeliveryError(
-                f"discord embed delivery failed: {type(exc).__name__} (batch {index}/{total})"
-            ) from exc
-
-        if not (200 <= response.status_code < 300):
-            raise DeliveryError(
-                f"discord embed delivery failed: HTTP {response.status_code}"
-                f" (batch {index}/{total})"
-            )
+        """POST a single embed batch via the shared retry helper (AC-001-008, ADR-001)."""
+        self._do_post_with_retry(
+            client,
+            json_body={"embeds": embeds},
+            noun="discord embed delivery",
+            unit="batch",
+            index=index,
+            total=total,
+        )
 
     def _post_one(self, client: httpx.Client, msg: str, *, index: int, total: int) -> None:
-        """POST a single message; raise DeliveryError without leaking the URL."""
-        try:
-            response = client.post(
-                self._webhook_url,
-                json={"content": msg},
-                timeout=self._timeout,
-            )
-        except httpx.TimeoutException as exc:
-            # Build message from exception type — NOT str(exc) which embeds URL.
-            raise DeliveryError(
-                f"discord delivery timed out after {self._timeout}s (message {index}/{total})"
-            ) from exc
-        except httpx.RequestError as exc:
-            # RequestError covers ConnectError, DNS, etc.
-            raise DeliveryError(
-                f"discord delivery failed: {type(exc).__name__} (message {index}/{total})"
-            ) from exc
-
-        if not (200 <= response.status_code < 300):
-            # Any 2xx (incl. 204) is success; anything else is fatal.
-            raise DeliveryError(
-                f"discord delivery failed: HTTP {response.status_code} (message {index}/{total})"
-            )
+        """POST a single message via the shared retry helper (AC-001-001..011, ADR-001)."""
+        self._do_post_with_retry(
+            client,
+            json_body={"content": msg},
+            noun="discord delivery",
+            unit="message",
+            index=index,
+            total=total,
+        )
